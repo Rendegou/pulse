@@ -20,6 +20,7 @@ const state = {
 
 // ---------- WebSocket ----------
 
+// connect 建立 WebSocket 并挂上断线重连（指数退避，上限 5 秒）。
 let retry = 0;
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
@@ -43,6 +44,8 @@ function connect() {
   };
 }
 
+// onMessage 分发服务端事件：welcome 确定身份并载入在线表，
+// join/leave 增删点，metrics 更新底部指标条。
 function onMessage(e) {
   switch (e.type) {
     case 'welcome':
@@ -73,6 +76,8 @@ function onMessage(e) {
 
 // ---------- 画布 ----------
 
+// fit 把画布像素对齐到 devicePixelRatio（防止高分屏发虚），
+// 返回 CSS 像素尺寸供绘制坐标使用。
 function fit() {
   const dpr = Math.min(devicePixelRatio || 1, 2);
   const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -84,6 +89,8 @@ function fit() {
   return { w, h };
 }
 
+// draw 是每帧渲染入口：画出所有 session 点——出生放大、死亡消散、
+// 常态呼吸缩放；你的点带光环，别人的点是青色。
 function draw() {
   const { w, h } = fit();
   ctx.clearRect(0, 0, w, h);

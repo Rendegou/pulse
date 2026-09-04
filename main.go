@@ -47,10 +47,12 @@ type Hub struct {
 	dropped  uint64 // 因慢消费被丢弃的消息数
 }
 
+// NewHub 创建一个空的在线连接表。
 func NewHub() *Hub {
 	return &Hub{sessions: make(map[*Session]bool)}
 }
 
+// Count 返回当前在线连接数。
 func (h *Hub) Count() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -115,6 +117,7 @@ type metricsMsg struct {
 
 var upgrader = websocket.Upgrader{} // 默认校验 Origin==Host
 
+// main 装配 Hub、周期指标广播和 HTTP 路由，监听本地回环地址。
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	hub := NewHub()
@@ -142,6 +145,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
+// sub 把内嵌的 static 目录降成文件系统根，使 "/app.js" 而非 "/static/app.js" 可访问。
 func sub(f embed.FS) fs.FS {
 	sub, err := fs.Sub(f, "static")
 	if err != nil {
@@ -152,6 +156,9 @@ func sub(f embed.FS) fs.FS {
 
 type wsHandler struct{ hub *Hub }
 
+// ServeHTTP 走完一条 WebSocket 连接的完整生命周期：
+// 升级 → 登记 Session → welcome（你是谁+谁在线）→ 广播 join →
+// 读写双泵 → 断开后注销并广播 leave。
 func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -198,6 +205,8 @@ func readPump(conn *websocket.Conn) {
 	}
 }
 
+// writePump 把这个 Session 发送缓冲里的消息逐条写进 WebSocket。
+// 缓冲被 close（连接断开）时 for-range 结束，goroutine 退出。
 func writePump(conn *websocket.Conn, s *Session) {
 	for data := range s.send {
 		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
@@ -207,12 +216,15 @@ func writePump(conn *websocket.Conn, s *Session) {
 	}
 }
 
+// shortID 生成 4 位十六进制后缀（2 字节随机）。
+// 只有 6 万种取值，骨架阶段够用；真人多时碰撞是课程里要处理的问题。
 func shortID() string {
 	b := make([]byte, 2)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
+// randByte 返回一个加密随机字节，用于让出生位置在场景区间内散开。
 func randByte() byte {
 	b := make([]byte, 1)
 	_, _ = rand.Read(b)
