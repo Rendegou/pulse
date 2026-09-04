@@ -22,10 +22,12 @@ const state = {
 
 // connect 建立 WebSocket 并挂上断线重连（指数退避，上限 5 秒）。
 // ws 是模块级变量：其他代码（比如光标上报）也要用它发送。
+// 协议跟随页面：https 页面必须用 wss，否则浏览器按混合内容拦截。
 let retry = 0;
 let ws = null;
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
   const dot = document.getElementById('ws-dot');
   const label = document.getElementById('ws-label');
 

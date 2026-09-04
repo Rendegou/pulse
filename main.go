@@ -156,7 +156,11 @@ func main() {
 	}()
 
 	http.Handle("/ws", wsHandler{hub})
-	http.Handle("/", http.FileServerFS(sub(staticFS)))
+	// 静态文件禁缓存：开发期改完刷新就生效，不被旧 app.js 拖住
+	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		http.FileServerFS(sub(staticFS)).ServeHTTP(w, r)
+	}))
 
 	addr := "127.0.0.1:8090"
 	log.Printf("PULSE 骨架监听 http://%s （打开两个标签页试试）", addr)
