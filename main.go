@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -44,7 +45,7 @@ type Session struct {
 type Hub struct {
 	mu       sync.RWMutex
 	sessions map[*Session]bool
-	dropped  uint64 // 因慢消费被丢弃的消息数
+	dropped  atomic.Uint64 // 因慢消费被丢弃的消息数
 }
 
 // NewHub 创建一个空的在线连接表。
@@ -72,18 +73,20 @@ func (h *Hub) Broadcast(v any) {
 		select {
 		case s.send <- data:
 		default:
-			h.dropped++
+			h.dropped.Add(1) // 原子加：多个广播 goroutine 会同时走到这里
 		}
 	}
 }
 
-// Snapshot 返回当前在线列表（给新连接的 welcome 用）。
-func (h *Hub) Snapshot() []*Session {
+// Snapshot 返回当前在线列表的值拷贝（给新连接的 welcome 用）。
+// 必须是拷贝而不是指针：调用方会在锁外序列化这些 Session，
+// 而 cursor 更新随时在写它们的 X/Y——拷贝回来，锁外读才安全。
+func (h *Hub) Snapshot() []Session {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	out := make([]*Session, 0, len(h.sessions))
+	out := make([]Session, 0, len(h.sessions))
 	for s := range h.sessions {
-		out = append(out, s)
+		out = append(out, *s)
 	}
 	return out
 }
@@ -93,13 +96,13 @@ func (h *Hub) Snapshot() []*Session {
 // 服务端 → 浏览器的消息。数据面先用 JSON（文档 Phase 2 之前允许），
 // 二进制协议是后面的手写课程。
 type welcomeMsg struct {
-	Type     string     `json:"type"`
-	You      string     `json:"you"`
-	Sessions []*Session `json:"sessions"`
+	Type     string    `json:"type"`
+	You      string    `json:"you"`
+	Sessions []Session `json:"sessions"`
 }
 type joinMsg struct {
-	Type    string   `json:"type"`
-	Session *Session `json:"session"`
+	Type    string  `json:"type"`
+	Session Session `json:"session"`
 }
 type leaveMsg struct {
 	Type string `json:"type"`
@@ -108,9 +111,24 @@ type leaveMsg struct {
 type metricsMsg struct {
 	Type    string  `json:"type"`
 	Conns   int     `json:"conns"`
-	HeapMB  float64 `json:"heap_mb"`  // Go heap 实际占用
-	SysMB   float64 `json:"sys_mb"`   // Go 向 OS 申请总量
-	Dropped uint64  `json:"dropped"`  // 慢消费丢弃数
+	HeapMB  float64 `json:"heap_mb"` // Go heap 实际占用
+	SysMB   float64 `json:"sys_mb"`  // Go 向 OS 申请总量
+	Dropped uint64  `json:"dropped"` // 慢消费丢弃数
+}
+
+// cursorMsg 是浏览器 → 服务端的光标上报（20Hz 采样后的归一化坐标）。
+type cursorMsg struct {
+	Type string  `json:"type"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+}
+
+// cursorDeltaMsg 是服务端广播给其他人的光标增量。
+type cursorDeltaMsg struct {
+	Type string  `json:"type"`
+	ID   string  `json:"id"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
 }
 
 // ---------- 主流程 ----------
@@ -132,7 +150,7 @@ func main() {
 				Conns:   hub.Count(),
 				HeapMB:  float64(m.Alloc) / 1048576,
 				SysMB:   float64(m.Sys) / 1048576,
-				Dropped: hub.dropped,
+				Dropped: hub.dropped.Load(),
 			})
 		}
 	}()
@@ -178,11 +196,11 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 先告诉新连接“你是谁、都有谁在线”，再向大家广播你的到来
 	_ = conn.WriteJSON(welcomeMsg{Type: "welcome", You: s.ID, Sessions: h.hub.Snapshot()})
-	h.hub.Broadcast(joinMsg{Type: "join", Session: s})
+	h.hub.Broadcast(joinMsg{Type: "join", Session: *s})
 	log.Printf("join  %s（在线 %d）", s.ID, h.hub.Count())
 
 	go writePump(conn, s)
-	readPump(conn) // 阻塞直到断开
+	readPump(conn, s, h.hub) // 阻塞直到断开
 
 	h.hub.mu.Lock()
 	delete(h.hub.sessions, s)
@@ -194,14 +212,33 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("leave %s（在线 %d）", s.ID, h.hub.Count())
 }
 
-// readPump 持续读客户端消息。骨架版只读取不处理——
-// 课程 1 就在这里：解析 cursor 消息并广播坐标增量。
-func readPump(conn *websocket.Conn) {
+// readPump 持续读这条连接的消息，直到断开（ReadMessage 报错即返回）。
+// {type:"cursor"} → 更新本连接 Session 的坐标并广播增量给所有人。
+// 畸形消息只跳过（continue），不杀连接——一条坏消息不该拖死整条线。
+func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 	for {
-		_, _, err := conn.ReadMessage()
+		_, data, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
+		var msg cursorMsg
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+		if msg.Type != "cursor" {
+			continue
+		}
+		// 坐标约定为 0..1 归一化，越界的一律丢弃（防异常客户端）
+		if msg.X < 0 || msg.X > 1 || msg.Y < 0 || msg.Y > 1 {
+			continue
+		}
+
+		// 改坐标必须持锁：Snapshot 和广播都在别处读这些字段
+		hub.mu.Lock()
+		s.X, s.Y = msg.X, msg.Y
+		hub.mu.Unlock()
+
+		hub.Broadcast(cursorDeltaMsg{Type: "cursor", ID: s.ID, X: s.X, Y: s.Y})
 	}
 }
 

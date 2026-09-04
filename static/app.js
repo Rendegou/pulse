@@ -21,9 +21,11 @@ const state = {
 // ---------- WebSocket ----------
 
 // connect 建立 WebSocket 并挂上断线重连（指数退避，上限 5 秒）。
+// ws 是模块级变量：其他代码（比如光标上报）也要用它发送。
 let retry = 0;
+let ws = null;
 function connect() {
-  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(`ws://${location.host}/ws`);
   const dot = document.getElementById('ws-dot');
   const label = document.getElementById('ws-label');
 
@@ -50,11 +52,13 @@ function onMessage(e) {
   switch (e.type) {
     case 'welcome':
       state.you = e.you;
+      // 重连时服务端状态可能完全不同，先清掉旧表再载入
+      state.sessions.clear();
       for (const s of e.sessions) {
         state.sessions.set(s.id, { ...s, bornAt: performance.now() });
       }
       document.getElementById('you-label').textContent =
-        `你是 ${e.you} · 移动鼠标试试（什么都不会发生——光标同步是你的课程 1）`;
+        `你是 ${e.you} · 移动鼠标——在线的人都会看到你`;
       break;
     case 'join':
       state.sessions.set(e.session.id, { ...e.session, bornAt: performance.now() });
@@ -62,6 +66,14 @@ function onMessage(e) {
     case 'leave': {
       const s = state.sessions.get(e.id);
       if (s) s.deadAt = performance.now(); // 标记死亡，动画里消散
+      break;
+    }
+    case 'cursor': {
+      // 别人的光标增量：改 Map 里的坐标，draw() 下一帧自然画到新位置。
+      // 自己的回声跳过——本地已经乐观更新过了，回声只会把点拽回旧位置。
+      if (e.id === state.you) break;
+      const s = state.sessions.get(e.id);
+      if (s) { s.x = e.x; s.y = e.y; }
       break;
     }
     case 'metrics':
@@ -136,18 +148,34 @@ function draw() {
   requestAnimationFrame(draw);
 }
 
-// ---------- 课程 1：光标同步 ----------
+// ---------- 光标同步（课程 1） ----------
 //
-// 目标：移动鼠标时，你的点跟着走，其他在线的人也看见你走。
-//
-// 提示（先自己写，写完再对答案）：
-//   1. 监听 mousemove，归一化坐标到 0..1
-//   2. 20Hz 采样发送（不能每个 mousemove 都发，浏览器能到几百 Hz）
-//   3. 服务端 main.go 的 readPump 里解析 {type:"cursor", x, y}，
-//      更新 Session 并广播 delta
-//   4. 收到别人的 delta 就更新 Map 里的位置
-//
-// canvas.addEventListener('mousemove', (e) => { ... 从这里开始 ... });
+// 机制：mousemove 只记账（写 pending），全局唯一的 setInterval 每 50ms
+// 把最新坐标发给服务端（20Hz 采样）。自己的点本地立即更新（乐观更新），
+// 别人的移动靠服务端广播的 cursor 消息驱动（见 onMessage）。
+
+// pending 记录最近一次鼠标位置的归一化坐标；dirty 表示"有未发送的新位置"。
+const pending = { x: 0.5, y: 0.5, dirty: false };
+
+// 鼠标移动时只做两件事：记账 + 乐观更新自己的点。
+// 不在这里发消息（浏览器 mousemove 能到几百 Hz，会把服务器淹了）。
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect(); // clientX 是视口坐标，要减画布左上角
+  pending.x = (e.clientX - rect.left) / rect.width;
+  pending.y = (e.clientY - rect.top) / rect.height;
+  pending.dirty = true;
+
+  const me = state.you && state.sessions.get(state.you);
+  if (me) { me.x = pending.x; me.y = pending.y; }
+});
+
+// 每 50ms（20Hz）上报一次最新坐标；没动过或连接不在 OPEN 状态就不发。
+// 光标数据是可丢弃的——这一帧没发出去，下一帧覆盖它就行。
+setInterval(() => {
+  if (!pending.dirty || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'cursor', x: pending.x, y: pending.y }));
+  pending.dirty = false;
+}, 50);
 
 connect();
 requestAnimationFrame(draw);
