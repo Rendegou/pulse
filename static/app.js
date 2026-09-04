@@ -71,11 +71,21 @@ function onMessage(e) {
       break;
     }
     case 'cursor': {
-      // 别人的光标增量：改 Map 里的坐标，draw() 下一帧自然画到新位置。
-      // 自己的回声跳过——本地已经乐观更新过了，回声只会把点拽回旧位置。
+      // 别人的光标增量到达。自己的回声跳过（本地已乐观更新）。
       if (e.id === state.you) break;
       const s = state.sessions.get(e.id);
-      if (s) { s.x = e.x; s.y = e.y; }
+      if (s) { //往s.buf推入新点
+        if (!s.buf) s.buf = [];
+        s.buf.push({ t: performance.now(), x: e.x, y: e.y });
+        // 顺手删掉 1 秒前的旧点，别让队列无限长
+        const cutoff = performance.now() - 1000;
+        while (s.buf.length > 0 && s.buf[0].t < cutoff) {
+          s.buf.shift();
+        }
+      }
+      // TODO(方案C 接线①): 把上面"直接改坐标"换成往 s.buf 推入
+      //   { t: performance.now(), x: e.x, y: e.y }
+      // （没有 buf 就先建数组；顺手删掉 1 秒前的旧点，别让队列无限长）
       break;
     }
     case 'metrics':
@@ -113,9 +123,12 @@ function draw() {
   const breathe = (phase) => 1 + 0.18 * Math.sin(now / 600 + phase); // 呼吸感
 
   for (const [id, s] of state.sessions) {
-    const x = s.x * w, y = s.y * h;
     const isYou = id === state.you;
-
+    const x = s.x * w, y = s.y * h;
+    // TODO(方案C 接线②): 别人的点不要用 s.x/s.y 直接画——
+    //   const p = samplePosition(s, now - RENDER_DELAY); 用 p.x/p.y。
+    //   自己的点（isYou）保持直接用 s.x/s.y，手感必须零延迟。
+    const p = isYou ? s : samplePosition(s, now - RENDER_DELAY);
     // 出生：从 0 放大到 1（300ms）；死亡：淡出（600ms）
     let scale = Math.min(1, (now - s.bornAt) / 300);
     let alpha = 1;
@@ -148,6 +161,38 @@ function draw() {
   }
 
   requestAnimationFrame(draw);
+}
+
+// ---------- 插值缓冲（方案 C） ----------
+
+// RENDER_DELAY 是渲染比实时慢的毫秒数。20Hz 更新间隔 = 50ms；
+// 延迟必须 ≥ 1 个间隔，再留网络抖动余量，取 120ms。
+const RENDER_DELAY = 120;
+
+// samplePosition 计算一个远程 session 在"渲染时刻"（now − RENDER_DELAY）
+// 应该画在哪：在缓冲队列里找到夹住渲染时刻的相邻两点，线性插值。
+// s.buf 是按到达时刻排序的 {t, x, y} 队列（t 是本机收到时的 performance.now()）。
+function samplePosition(s, renderT) {
+  const buf = s.buf;
+  if (!buf || buf.length === 0) return { x: s.x, y: s.y }; // 还没收到过：出生位置
+
+  // 渲染时刻比最新的点还新（对方停下了）：停在最后已知位置，不外推
+  const last = buf[buf.length - 1];
+  if (renderT >= last.t) return { x: last.x, y: last.y };
+
+  // 渲染时刻比最老的点还旧（缓冲刚建立）：用第一个点
+  const first = buf[0];
+  if (renderT <= first.t) return { x: first.x, y: first.y };
+
+  // 找夹住 renderT 的相邻两项（队列很短，线性扫就够）
+  for (let i = 0; i < buf.length - 1; i++) {
+    const a = buf[i], b = buf[i + 1];
+    if (a.t <= renderT && renderT <= b.t) {
+      const k = (renderT - a.t) / (b.t - a.t); // 渲染时刻在两点间走过的比例 0..1
+      return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+    }
+  }
+  return { x: last.x, y: last.y }; // 兜底：理论上到不了
 }
 
 // ---------- 光标同步（课程 1） ----------

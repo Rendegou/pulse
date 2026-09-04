@@ -1,0 +1,40 @@
+# push 到 main 后自动部署到服务器：
+# 构建 Linux 二进制 → scp 上传 → 以 deploy 用户运行授权脚本重启 pulse
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: 检查与构建
+        run: |
+          go vet ./...
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o pulse .
+
+      - name: 上传到服务器
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            pulse "deploy@$DEPLOY_HOST:/home/deploy/pulse.new"
+
+      - name: 安装并重启服务
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            "deploy@$DEPLOY_HOST" sudo /usr/local/sbin/deploy-pulse.sh
