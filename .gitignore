@@ -1,0 +1,4 @@
+pulse.exe
+dist/
+.tools/
+*.log

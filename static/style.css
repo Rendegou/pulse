@@ -1,0 +1,102 @@
+/* PULSE 骨架样式 — 沿用视觉原型的暗色仪器感 */
+
+:root {
+  --bg: #07090d;
+  --panel: rgba(12, 16, 23, .85);
+  --line: #202936;
+  --text: #e9eef6;
+  --muted: #7f8b9c;
+  --faint: #566274;
+  --accent: #d9ff68;
+  --cyan: #79e6ff;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 细网格底纹，和视觉原型一致 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(121, 230, 255, .05), transparent 32%),
+    linear-gradient(rgba(255, 255, 255, .018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .018) 1px, transparent 1px);
+  background-size: auto, 34px 34px, 34px 34px;
+}
+
+/* ---------- 顶部栏 ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  padding: 0 22px;
+  height: 58px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(7, 9, 13, .92);
+  z-index: 5;
+}
+
+.brand { font-weight: 800; letter-spacing: .26em; font-size: 17px; }
+.brand span { color: var(--accent); }
+.tag { margin-left: 18px; color: var(--muted); font-size: 12px; letter-spacing: .08em; }
+
+.live { margin-left: auto; display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: #b7c0cf; font-family: ui-monospace, monospace; }
+
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.dot.on { background: var(--accent); box-shadow: 0 0 15px var(--accent);
+  animation: pulse 1.4s infinite; }
+@keyframes pulse { 50% { opacity: .4; transform: scale(.8); } }
+
+/* ---------- 画布区 ---------- */
+
+.stage { position: relative; flex: 1; min-height: 0; }
+
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.overlay { position: absolute; left: 20px; top: 18px; pointer-events: none; }
+.kicker { font-size: 10px; letter-spacing: .2em; color: var(--faint);
+  font-family: ui-monospace, monospace; }
+.headline { font-size: 26px; font-weight: 660; margin-top: 5px; letter-spacing: -.03em; }
+.headline em { font-style: normal; color: var(--cyan); }
+.sub { font-size: 12px; color: var(--muted); margin-top: 6px; max-width: 420px; }
+
+.note { position: absolute; right: 18px; bottom: 14px; font-size: 9px;
+  color: #4e5a6b; letter-spacing: .05em; font-family: ui-monospace, monospace; }
+
+/* ---------- 底部指标 ---------- */
+
+.bottom {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: 12px 16px;
+  gap: 10px;
+}
+
+.metric { padding: 6px 10px; border-right: 1px solid rgba(32, 41, 54, .8); }
+.metric:last-child { border-right: 0; }
+.metric .label { font-size: 9px; letter-spacing: .15em; color: #626f81;
+  font-family: ui-monospace, monospace; }
+.metric .value { font-size: 19px; font-weight: 680; margin-top: 6px;
+  letter-spacing: -.03em; font-family: ui-monospace, monospace; }
+.metric .meta { font-size: 10px; color: #687587; margin-top: 2px; }
+
+@media (max-width: 700px) {
+  .tag { display: none; }
+  .bottom { grid-template-columns: repeat(2, 1fr); }
+}

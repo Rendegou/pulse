@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PULSE · 骨架</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">PUL<span>S</span>E</div>
+  <div class="tag">最小骨架 · 每个点都是真实连接</div>
+  <div class="live"><span id="ws-dot" class="dot"></span><span id="ws-label">CONNECTING…</span></div>
+</header>
+
+<main class="stage">
+  <canvas id="c"></canvas>
+  <div class="overlay">
+    <div class="kicker">PRESENCE · REALTIME</div>
+    <div class="headline">This is happening <em>right now.</em></div>
+    <div class="sub" id="you-label">…</div>
+  </div>
+  <div class="note">每个点 = 一个真实 WebSocket 连接 · 无任何模拟数据</div>
+</main>
+
+<footer class="bottom">
+  <div class="metric"><div class="label">ONLINE</div><div class="value" id="m-conns">0</div><div class="meta">真实长连接</div></div>
+  <div class="metric"><div class="label">GO HEAP</div><div class="value" id="m-heap">—</div><div class="meta">进程真实内存</div></div>
+  <div class="metric"><div class="label">GO SYS</div><div class="value" id="m-sys">—</div><div class="meta">向 OS 申请总量</div></div>
+  <div class="metric"><div class="label">DROPPED</div><div class="value" id="m-dropped">0</div><div class="meta">慢消费丢弃</div></div>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
