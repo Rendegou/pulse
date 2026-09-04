@@ -1,0 +1,10 @@
+# PULSE 公网入口
+# 自动 HTTPS。Let's Encrypt 从本服务器不可达，改用 ZeroSSL（ACME 互通正常）。
+{
+	acme_ca https://acme.zerossl.com/v2/DV90
+	email 2739704861@qq.com
+}
+
+yamiblog.me {
+	reverse_proxy 127.0.0.1:8090
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=Caddy reverse proxy (PULSE 公网入口)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# caddy 需要自己的用户和目录存证书；CAP_NET_BIND_SERVICE 让它非 root 也能绑 80/443
+User=caddy
+Group=caddy
+# 证书/配置存放位置（默认找 $HOME，caddy 用户没有可写家目录）
+Environment=XDG_DATA_HOME=/var/lib/caddy
+Environment=XDG_CONFIG_HOME=/var/lib/caddy/config
+ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile
+Restart=on-failure
+RestartSec=2
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
