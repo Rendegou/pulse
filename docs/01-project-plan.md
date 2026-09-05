@@ -13,9 +13,9 @@
 2026-09-05 检查本地 `669a059`：
 
 - `main.go` 已包含 Hub、Session、welcome/join/leave、cursor 广播及两秒一次的内存指标。
-- `static/app.js` 已包含连接重试、20Hz 光标采样、自己的即时位置更新、插值函数 `samplePosition` 与 `RENDER_DELAY`。
-- 但插值尚未接线：`onMessage` 的 cursor 分支仍直接改 `s.x/s.y`，没有样本写入 `s.buf`；`draw()` 也从未调用 `samplePosition`，两处均有 TODO 路标。函数存在不等于被调用，被调用也不等于结果被消费。
-- 文件顶部“光标同步还没写”的课程描述已经过时。
+- `static/app.js` 已包含连接重试、20Hz 光标采样、自己的即时位置更新、远程缓冲和 `samplePosition`。
+- `draw()` 中先用 `s.x/s.y` 计算画布坐标，随后才计算 `p`；`ctx.arc` 没使用 `p`。因此插值接线仍未完成。
+- `onMessage` 已向 `s.buf` 推点，但“待接线①”的 TODO 尚未清理。文件顶部“光标还没写”的描述也已经过时。
 - `docs/guide.md` 原版把服务端消息称为 `delta`，实现双方实际使用 `cursor`。
 - HTTPS 页面选择 `wss` 的逻辑已存在；仓库已存在 Caddy 与自动部署配置。当前未验证线上服务和最近部署结果。
 - 服务端发送 channel 容量为 64，但所有消息统一丢弃；没有读大小限制、应用级限频和显式心跳生命周期；写失败只结束 writer，可能留下仍阻塞读取的连接。
