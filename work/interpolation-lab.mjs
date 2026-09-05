@@ -97,42 +97,55 @@ console.log(overshoot > 1 ? "越界了：曲线冲过了输入的最大值" : "�
 // a、b 是两端位置；ma、mb 是两端切线×段长（即段内位移量纲）；s∈[0,1] 是段内进度。
 // 四个基函数分别控制：a 的位置权重、a 的切线权重、b 的位置权重、b 的切线权重。
 function hermite(a, b, ma, mb, s) {
-  const s2 = s * s, s3 = s2 * s;
-  return (2 * s3 - 3 * s2 + 1) * a + (s3 - 2 * s2 + s) * ma
-       + (-2 * s3 + 3 * s2) * b + (s3 - s2) * mb;
+  const s2 = s * s,
+    s3 = s2 * s;
+  return (
+    (2 * s3 - 3 * s2 + 1) * a +
+    (s3 - 2 * s2 + s) * ma +
+    (-2 * s3 + 3 * s2) * b +
+    (s3 - s2) * mb
+  );
 }
 
 // tangentAt 估算 buf[idx] 这一点的时间感知切线（坐标/毫秒）：
 // 取前后邻居的割线斜率；转折或停滞处（相邻两段方向不一致）取 0 防过冲。
 // 缓冲头尾缺邻居时返回 0，等价于"从静止出发 / 平滑停下"。
 function tangentAt(buf, idx) {
-  const prev = buf[idx - 1], next = buf[idx + 1];
+  const prev = buf[idx - 1],
+    next = buf[idx + 1];
   if (!prev || !next) return 0;
   const dPrev = buf[idx].x - prev.x; // 前一段的方向
   const dNext = next.x - buf[idx].x; // 后一段的方向
-  if (dPrev * dNext <= 0) return 0;  // 转折点（含持平）：先停再走
+  if (dPrev * dNext <= 0) return 0; // 转折点（含持平）：先停再走
   return (next.x - prev.x) / (next.t - prev.t);
 }
 
 // sampleAtHermite 与 sampleAt 同样的段落定位，但段内用 Hermite：
 // 端点切线由时间差估出，相邻段因此共享一致的交界速度，转弯处不越界。
 function sampleAtHermite(buf, renderT) {
-  if (buf.length === 0) return { x: null, mode: 'empty' };
+  if (buf.length === 0) return { x: null, mode: "empty" };
   const last = buf[buf.length - 1];
-  if (renderT >= last.t) return { x: last.x, mode: 'clamp-last' };
+  if (renderT >= last.t) return { x: last.x, mode: "clamp-last" };
   const first = buf[0];
-  if (renderT <= first.t) return { x: first.x, mode: 'clamp-first' };
+  if (renderT <= first.t) return { x: first.x, mode: "clamp-first" };
 
   for (let i = 0; i < buf.length - 1; i++) {
-    const a = buf[i], b = buf[i + 1];
+    const a = buf[i],
+      b = buf[i + 1];
     if (a.t <= renderT && renderT <= b.t) {
       const s = (renderT - a.t) / (b.t - a.t);
       const span = b.t - a.t; // 切线×段长 = 段内位移，喂给 hermite
-      const x = hermite(a.x, b.x, tangentAt(buf, i) * span, tangentAt(buf, i + 1) * span, s);
-      return { x, mode: 'hermite' };
+      const x = hermite(
+        a.x,
+        b.x,
+        tangentAt(buf, i) * span,
+        tangentAt(buf, i + 1) * span,
+        s,
+      );
+      return { x, mode: "hermite" };
     }
   }
-  return { x: last.x, mode: 'fallback' };
+  return { x: last.x, mode: "fallback" };
 }
 
 // ---------- 实验 C：Hermite 还会过冲吗？ ----------
@@ -146,17 +159,23 @@ const hill = [
   { t: 150, x: 0 },
 ];
 const hMid = sampleAtHermite(hill, 75);
-console.log('\n=== 实验 C：Hermite 过冲检查 ===');
-console.log(`山顶段中点: x = ${hMid.x.toFixed(3)}（输入最大 1，样条在这里算出 1.125）`);
-console.log(hMid.x <= 1 ? '没有越界 ✓' : '越界了 ✗');
+console.log("\n=== 实验 C：Hermite 过冲检查 ===");
+console.log(
+  `山顶段中点: x = ${hMid.x.toFixed(3)}（输入最大 1，样条在这里算出 1.125）`,
+);
+console.log(hMid.x <= 1 ? "没有越界 ✓" : "越界了 ✗");
 
 // ---------- 实验 A′：Hermite 会不会改写历史？ ----------
 
 const hBefore = sampleAtHermite(threePoints, renderT);
 const hAfter = sampleAtHermite(fourPoints, renderT);
-console.log('\n=== 实验 A′：同一个 renderT=75，Hermite 前后对比 ===');
+console.log("\n=== 实验 A′：同一个 renderT=75，Hermite 前后对比 ===");
 console.log(`三点缓冲:  x = ${hBefore.x.toFixed(4)}`);
 console.log(`四点缓冲:  x = ${hAfter.x.toFixed(4)}`);
-console.log(`差值: ${Math.abs(hAfter.x - hBefore.x).toFixed(4)}（样条当年差 0.050）`);
-console.log('注：本例未来点是急转弯，转折规则把 mb 归零所以恰好不变；');
-console.log('若未来点延续原方向，mb 仍会更新——彻底解法是"段落播放后冻结"，留作下一步。');
+console.log(
+  `差值: ${Math.abs(hAfter.x - hBefore.x).toFixed(4)}（样条当年差 0.050）`,
+);
+console.log("注：本例未来点是急转弯，转折规则把 mb 归零所以恰好不变；");
+console.log(
+  '若未来点延续原方向，mb 仍会更新——彻底解法是"段落播放后冻结"，留作下一步。',
+);

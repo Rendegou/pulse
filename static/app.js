@@ -201,25 +201,30 @@ function samplePosition(s, renderT) {
     const a = buf[i],
       b = buf[i + 1];
     if (a.t <= renderT && renderT <= b.t) {
-      const s = (renderT - a.t) / (b.t - a.t);
+      const prog = (renderT - a.t) / (b.t - a.t);
+      const span = b.t - a.t;
+
+      // s.playing 缓存正在播放的段的四个切线：段一旦开始播放就冻结计算方式，
+      // 新到的采样点只影响未来的段——已播出的历史不被改写。
+      // 键用段起点时间戳 a.t 而不是索引 i：buf 裁剪会让索引前移，时间戳永远稳定。
+      if (!s.playing || s.playing.segT !== a.t) {
+        s.playing = {
+          segT: a.t,
+          max: tangentAt(buf, i, "x") * span,
+          may: tangentAt(buf, i, "y") * span,
+          mbx: tangentAt(buf, i + 1, "x") * span,
+          mby: tangentAt(buf, i + 1, "y") * span,
+        };
+      }
+      const p = s.playing;
+
       return {
-        x: hermiteSegment(buf, i, s, "x"),
-        y: hermiteSegment(buf, i, s, "y"),
+        x: hermite(a.x, b.x, p.max, p.mbx, prog),
+        y: hermite(a.y, b.y, p.may, p.mby, prog),
       };
     }
   }
   return { x: last.x, y: last.y }; // 兜底：理论上到不了
-}
-
-// hermiteSegment 在 buf[i]→buf[i+1] 段上求 s∈[0,1] 处的平滑位置。
-// key 指定维度（"x"/"y"），调用方两个维度各调一次。
-function hermiteSegment(buf, i, s, key) {
-  const a = buf[i],
-    b = buf[i + 1];
-  const span = b.t - a.t; // 切线是"坐标/毫秒"，乘段长换算成段内位移
-  const ma = tangentAt(buf, i, key) * span;
-  const mb = tangentAt(buf, i + 1, key) * span;
-  return hermite(a[key], b[key], ma, mb, s);
 }
 
 // hermite 用两端点的位置和切线做三次插值（只管一维）。
