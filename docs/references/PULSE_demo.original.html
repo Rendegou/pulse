@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PULSE — See the server breathe</title>
+<style>
+:root{
+  --bg:#07090d;--panel:rgba(12,16,23,.82);--line:#202936;--text:#e9eef6;
+  --muted:#7f8b9c;--accent:#d9ff68;--cyan:#79e6ff;--orange:#ffb15f;--red:#ff667f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background:
+radial-gradient(circle at 50% 45%,rgba(121,230,255,.055),transparent 32%),
+linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
+linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+background-size:auto,34px 34px,34px 34px}
+.app{display:grid;grid-template-columns:230px 1fr 310px;grid-template-rows:64px 1fr 130px;height:100vh}
+header{grid-column:1/-1;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 22px;background:rgba(7,9,13,.92);backdrop-filter:blur(12px);z-index:5}
+.brand{font-weight:800;letter-spacing:.26em;font-size:17px}.brand span{color:var(--accent)}
+.tag{margin-left:18px;color:var(--muted);font-size:12px;letter-spacing:.08em}
+.live{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:#b7c0cf}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 15px var(--accent);animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.4;transform:scale(.8)}}
+.left,.right,.bottom{background:var(--panel);backdrop-filter:blur(12px)}
+.left{grid-row:2/4;border-right:1px solid var(--line);padding:18px 14px}
+.right{grid-row:2/3;border-left:1px solid var(--line);overflow:hidden}
+.bottom{grid-column:2/-1;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(6,1fr);padding:13px 16px;gap:10px}
+.section-title{font-size:10px;letter-spacing:.18em;color:#667386;margin:8px 8px 10px}
+.mode{padding:11px 12px;border:1px solid transparent;border-radius:8px;margin-bottom:6px;color:#94a0b1;cursor:pointer;transition:.2s;font-size:13px}
+.mode:hover{background:#0f141c;color:white}.mode.active{border-color:#2e3948;background:#111720;color:var(--text)}
+.mode small{display:block;color:#566274;margin-top:4px}
+.divider{height:1px;background:var(--line);margin:18px 6px}
+button{width:100%;background:#111720;color:var(--text);border:1px solid #2b3544;border-radius:8px;padding:10px 12px;cursor:pointer;margin-bottom:7px;text-align:left}
+button:hover{border-color:#596678}
+button.primary{background:var(--accent);border-color:var(--accent);color:#101405;font-weight:800}
+.legend{display:flex;align-items:center;gap:9px;font-size:11px;color:#7d8999;padding:5px 9px}
+.legend i{width:7px;height:7px;border-radius:50%;display:inline-block}.l-human{background:var(--cyan)}.l-synth{border:1px solid #54606f}.l-host{background:var(--orange)}.l-scan{background:var(--red)}
+.stage{position:relative;overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+.overlay{position:absolute;left:20px;top:18px;pointer-events:none}
+.kicker{font-size:10px;letter-spacing:.2em;color:#667386}
+.headline{font-size:26px;font-weight:660;margin-top:5px;letter-spacing:-.03em}
+.sub{font-size:12px;color:#718095;margin-top:6px}
+.you{color:var(--cyan)}
+.right h3{font-size:10px;letter-spacing:.18em;color:#667386;margin:18px 16px 10px}
+.feed{height:calc(100% - 48px);overflow:hidden;padding:0 10px 14px}
+.event{padding:9px 7px;border-bottom:1px solid rgba(37,46,59,.72);display:grid;grid-template-columns:52px 1fr;gap:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10px;line-height:1.45}
+.event .time{color:#505d6e}.event .msg{color:#9ba7b7}.event b{font-weight:600;color:#d5dce6}.port{color:var(--orange)}.scan{color:var(--red)}
+.metric{padding:7px 10px;border-right:1px solid rgba(32,41,54,.8)}.metric:last-child{border-right:0}
+.metric .label{font-size:9px;letter-spacing:.15em;color:#626f81}.metric .value{font-size:19px;font-weight:680;margin-top:7px;letter-spacing:-.03em}.metric .meta{font-size:10px;color:#687587;margin-top:3px}
+.ports{padding:0 8px}.prow{display:grid;grid-template-columns:40px 1fr 42px;align-items:center;gap:8px;font:10px ui-monospace,monospace;padding:6px 2px}.bar{height:3px;background:#141b24;border-radius:2px;overflow:hidden}.bar>span{display:block;height:100%;background:#536275}.prow.hot .bar>span{background:var(--orange)}
+.note{position:absolute;right:18px;bottom:14px;font-size:9px;color:#4e5a6b;letter-spacing:.05em}
+@media(max-width:900px){.app{grid-template-columns:170px 1fr;grid-template-rows:58px 1fr 120px}.right{display:none}.bottom{grid-column:2}.bottom .metric:nth-child(n+5){display:none}.tag{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="brand">PUL<span>S</span>E</div>
+  <div class="tag">SEE THE SERVER BREATHE</div>
+  <div class="live"><span class="dot"></span><span>LIVE · DEMO DATA</span></div>
+</header>
+
+<aside class="left">
+  <div class="section-title">VIEW</div>
+  <div class="mode active" data-mode="system">SYSTEM<small>presence + host radar</small></div>
+  <div class="mode" data-mode="presence">PRESENCE<small>live site sessions</small></div>
+  <div class="mode" data-mode="host">HOST RADAR<small>all inbound ports</small></div>
+
+  <div class="divider"></div>
+  <div class="section-title">INJECT</div>
+  <button id="scan">Simulate port scan burst</button>
+  <button id="human">Simulate human visit</button>
+  <button id="stress" class="primary">STRESS · +10K synthetic</button>
+
+  <div class="divider"></div>
+  <div class="section-title">LEGEND</div>
+  <div class="legend"><i class="l-human"></i>Real session</div>
+  <div class="legend"><i class="l-synth"></i>Synthetic</div>
+  <div class="legend"><i class="l-host"></i>Host event</div>
+  <div class="legend"><i class="l-scan"></i>Scanner-like</div>
+
+  <div class="divider"></div>
+  <div class="section-title">PORTS · LIVE</div>
+  <div class="ports" id="ports"></div>
+</aside>
+
+<main class="stage">
+  <canvas id="c"></canvas>
+  <div class="overlay">
+    <div class="kicker" id="kicker">SYSTEM · REALTIME</div>
+    <div class="headline">This is happening <span class="you">right now.</span></div>
+    <div class="sub">Move your mouse — the cyan session is you.</div>
+  </div>
+  <div class="note">STATIC PROTOTYPE · EVENTS ARE SIMULATED</div>
+</main>
+
+<aside class="right">
+  <h3>EVENT STREAM</h3>
+  <div class="feed" id="feed"></div>
+</aside>
+
+<footer class="bottom">
+  <div class="metric"><div class="label">REAL SESSIONS</div><div class="value" id="real">14</div><div class="meta">WebSocket</div></div>
+  <div class="metric"><div class="label">SYNTHETIC</div><div class="value" id="synthetic">0</div><div class="meta">clearly marked</div></div>
+  <div class="metric"><div class="label">HOST EVENTS</div><div class="value" id="eps">3.2K/s</div><div class="meta">ingest rate</div></div>
+  <div class="metric"><div class="label">RSS</div><div class="value" id="rss">216 MB</div><div class="meta">2 CPU / 4 GB</div></div>
+  <div class="metric"><div class="label">P99</div><div class="value" id="p99">11.4 ms</div><div class="meta">event delivery</div></div>
+  <div class="metric"><div class="label">MEM / CONN</div><div class="value" id="memconn">—</div><div class="meta">app estimate</div></div>
+</footer>
+</div>
+
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+const feed=document.getElementById('feed');
+const $=id=>document.getElementById(id);
+let W=0,H=0,dpr=1,mode='system',synthetic=0,real=14;
+let mouse={x:.5,y:.55},particles=[],sources=[];
+const ports=[22,80,443,3000,3306,5432,8080];
+const reserved=["198.51.100.x","203.0.113.x","192.0.2.x"];
+let portRates={22:23,80:81,443:328,3000:2,3306:1,5432:0,8080:11};
+
+function resize(){
+ dpr=Math.min(devicePixelRatio||1,2);W=canvas.clientWidth;H=canvas.clientHeight;
+ canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize',resize);resize();
+function rand(a,b){return a+Math.random()*(b-a)}
+function pick(a){return a[(Math.random()*a.length)|0]}
+function now(){return new Date().toLocaleTimeString([], {hour12:false}).slice(0,8)}
+function log(msg){
+ const el=document.createElement('div');el.className='event';
+ el.innerHTML=`<div class="time">${now()}</div><div class="msg">${msg}</div>`;
+ feed.prepend(el);while(feed.children.length>20)feed.lastChild.remove();
+}
+function renderPorts(){
+ const max=Math.max(...Object.values(portRates),1);
+ $('ports').innerHTML=ports.map(p=>`<div class="prow ${portRates[p]>10?'hot':''}">
+ <span>:${p}</span><div class="bar"><span style="width:${Math.max(3,portRates[p]/max*100)}%"></span></div><span>${portRates[p]}/s</span>
+ </div>`).join('');
+}
+renderPorts();
+
+const pages=[[-.22,-.10],[.22,-.16],[-.18,.18],[.23,.17],[0,.30]];
+for(let i=0;i<real-1;i++){
+ const p=pick(pages);
+ particles.push({x:.5+p[0]+rand(-.055,.055),y:.5+p[1]+rand(-.045,.045),vx:rand(-.00008,.00008),vy:rand(-.00008,.00008),r:2+Math.random()*1.8});
+}
+canvas.addEventListener('mousemove',e=>{const r=canvas.getBoundingClientRect();mouse.x=(e.clientX-r.left)/r.width;mouse.y=(e.clientY-r.top)/r.height});
+document.querySelectorAll('.mode').forEach(el=>el.onclick=()=>{
+ document.querySelectorAll('.mode').forEach(x=>x.classList.remove('active'));el.classList.add('active');mode=el.dataset.mode;
+ $('kicker').textContent=mode==='system'?'SYSTEM · REALTIME':mode==='presence'?'PRESENCE · LIVE SESSIONS':'HOST RADAR · ALL PORTS';
+});
+function addHost(scan=false){
+ const angle=Math.random()*Math.PI*2,radius=.46,port=scan?pick([22,3306,5432,8080,3000]):pick(ports);
+ const s={x:.5+Math.cos(angle)*radius,y:.52+Math.sin(angle)*radius,age:0,life:rand(1.5,3.6),port,scan,src:pick(reserved)};
+ sources.push(s);portRates[port]=Math.max(0,portRates[port]+(Math.random()<.7?1:0));
+ log(scan?`<b>scanner-${Math.random().toString(16).slice(2,6)}</b> → <span class="scan">:${port}</span> · SYN`:
+ `<b>${s.src}</b> → <span class="port">:${port}</span> · ${port===443?'ESTABLISHED':'SYN'}`);
+}
+function addHuman(){
+ real++;$('real').textContent=real;const p=pick(pages);
+ particles.push({x:.5+p[0],y:.5+p[1],vx:rand(-.00012,.00012),vy:rand(-.00012,.00012),r:3});
+ log(`<b>visitor-${Math.random().toString(16).slice(2,6)}</b> connected · WebSocket`);
+}
+$('scan').onclick=()=>{for(let i=0;i<18;i++)setTimeout(()=>addHost(true),i*45)};
+$('human').onclick=addHuman;
+$('stress').onclick=()=>{
+ synthetic=synthetic===0?10000:synthetic===10000?50000:0;
+ $('synthetic').textContent=synthetic.toLocaleString();
+ $('stress').textContent=synthetic===0?'STRESS · +10K synthetic':synthetic===10000?'STRESS · +50K synthetic':'RESET SYNTHETIC';
+ updateMetrics();log(`<b>loadgen</b> synthetic population → ${synthetic.toLocaleString()}`);
+};
+function updateMetrics(){
+ const eps=3200+synthetic*3.1+Math.random()*800;
+ $('eps').textContent=(eps/1000).toFixed(1)+'K/s';
+ const rss=216+synthetic*.0094;
+ $('rss').textContent=Math.round(rss)+' MB';
+ $('p99').textContent=(11.4+synthetic/50000*14+Math.random()*1.5).toFixed(1)+' ms';
+ $('memconn').textContent=synthetic?((rss-150)*1024/(synthetic+real)).toFixed(1)+' KB':'—';
+}
+setInterval(updateMetrics,850);
+setInterval(()=>{if(Math.random()<.8)addHost(Math.random()<.18);renderPorts()},500);
+
+function line(x1,y1,x2,y2,color,a=1,w=1){ctx.globalAlpha=a;ctx.strokeStyle=color;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.globalAlpha=1}
+function circle(x,y,r,color,a=1,fill=true){ctx.globalAlpha=a;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);fill?(ctx.fillStyle=color,ctx.fill()):(ctx.strokeStyle=color,ctx.stroke());ctx.globalAlpha=1}
+function drawPorts(){
+ const rr=Math.min(W,H)*.22;
+ ports.forEach((p,i)=>{const a=-Math.PI/2+i/ports.length*Math.PI*2,x=W*.5+Math.cos(a)*rr,y=H*.52+Math.sin(a)*rr;
+ line(W*.5,H*.52,x,y,'#1b2633',.9,1);circle(x,y,4,portRates[p]>10?'#ffb15f':'#667587',.8,true);
+ ctx.fillStyle='#677487';ctx.font='10px ui-monospace,monospace';ctx.fillText(':'+p,x+8,y+3)});
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ if(mode!=='host'){
+  pages.forEach((p,i)=>{const x=W*(.5+p[0]),y=H*(.5+p[1]);circle(x,y,Math.min(W,H)*.085,'#111823',.42,false);
+  ctx.fillStyle='#495565';ctx.font='9px ui-monospace,monospace';ctx.fillText(['/home','/lab','/about','/benchmark','/live'][i],x-20,y-55)});
+ }
+ if(mode!=='presence')drawPorts();
+ circle(W*.5,H*.52,9,'#d9ff68',.95,true);circle(W*.5,H*.52,20,'#d9ff68',.18,false);
+ ctx.fillStyle='#829059';ctx.font='9px ui-monospace,monospace';ctx.fillText('SERVER',W*.5-18,H*.52+35);
+
+ if(mode!=='host'){
+  particles.forEach((p,i)=>{p.x+=p.vx;p.y+=p.vy;if(p.x<.15||p.x>.85)p.vx*=-1;if(p.y<.18||p.y>.82)p.vy*=-1;
+   circle(W*p.x,H*p.y,p.r,'#79e6ff',.82,true);if(i<5)circle(W*p.x,H*p.y,p.r+5,'#79e6ff',.08,false)});
+  const ux=W*mouse.x,uy=H*mouse.y;circle(ux,uy,5,'#79e6ff',1,true);circle(ux,uy,14,'#79e6ff',.28,false);
+  ctx.fillStyle='#79e6ff';ctx.font='9px ui-monospace,monospace';ctx.fillText('YOU',ux+10,uy-9);
+  if(synthetic){
+   const drawN=Math.min(1800,300+synthetic/35);ctx.fillStyle='#4c5867';
+   for(let i=0;i<drawN;i++){const a=((i*2.399963)+performance.now()*.00001)%6.283,rad=Math.sqrt((i%drawN)/drawN)*Math.min(W,H)*.37;
+    const x=W*.5+Math.cos(a)*rad,y=H*.52+Math.sin(a)*rad;ctx.globalAlpha=.10+(i%9===0?.08:0);ctx.fillRect(x,y,1,1)}
+   ctx.globalAlpha=1;
+  }
+ }
+ if(mode!=='presence'){
+  sources.forEach(s=>{s.age+=.016;const t=Math.min(s.age/s.life,1),sx=W*s.x,sy=H*s.y,tx=W*.5,ty=H*.52,col=s.scan?'#ff667f':'#ffb15f';
+   line(sx,sy,tx,ty,col,(1-t)*.55,1);const q=Math.min(t*1.3,1),px=sx+(tx-sx)*q,py=sy+(ty-sy)*q;circle(px,py,s.scan?2.8:2,col,1-t*.3,true)});
+  sources=sources.filter(s=>s.age<s.life);
+ }
+ requestAnimationFrame(draw);
+}
+draw();
+log('<b>visitor-8f31</b> connected · you');
+log('<b>203.0.113.x</b> → <span class="port">:443</span> · ESTABLISHED');
+log('<b>scanner-7d2a</b> → <span class="scan">:22</span> · SYN');
+</script>
+</body>
+</html>
