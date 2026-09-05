@@ -21,6 +21,10 @@
 - [注释 Skill](../.agents/skills/comment-convention/SKILL.md)：写代码时执行的简明规范。
 - [陪练 Skill](../.agents/skills/handwrite-coach/SKILL.md)：助手如何出题、提示、示范和验收。
 
+## 想法留档
+
+- [World Notes：二维博客世界](ideas/2026-09-05-world-notes.md)：字符串地址、可搭建的房子、文章与实时指针的未来构想，附独立 HTML Demo；不改变当前手写课程排期。
+
 ## 对现有材料的处理
 
 原 `docs/guide.md` 是八课的粗略路线，引用了当时未放进仓库的“§11 / §23 / Phase 2–5”。这些章节现在已在下载目录的原始概念文档中核实并归档。本版改成有实际文件和章节链接的教程；它仍保留原来“你写，我陪练”的方向。
