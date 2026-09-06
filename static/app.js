@@ -5,7 +5,12 @@
  * 所有数据来自 /ws 的真实事件：welcome / join / leave / cursor / metrics。
  * 没有模拟数据。你的点有光环，别人的点是青色。
  * 远程点的移动经过 Hermite 插值缓冲（渲染延迟 120ms），见 samplePosition。
+ *
+ * 本文件是 ES module：纯函数在 static/pure.js（可单测），
+ * 这里只保留状态、副作用（DOM/网络/计时器）和绘制。
  */
+
+import { normalizePointer } from "./pure.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -264,18 +269,19 @@ function tangentAt(buf, idx, key) {
 // pending 记录最近一次鼠标位置的归一化坐标；dirty 表示"有未发送的新位置"。
 const pending = { x: 0.5, y: 0.5, dirty: false };
 
-// 鼠标移动时只做两件事：记账 + 乐观更新自己的点。
+// 鼠标移动时只做三件事：读 DOM（rect/坐标）→ 纯函数换算 → 记账 + 乐观更新自己的点。
 // 不在这里发消息（浏览器 mousemove 能到几百 Hz，会把服务器淹了）。
 canvas.addEventListener("mousemove", (e) => {
-  const rect = canvas.getBoundingClientRect(); // clientX 是视口坐标，要减画布左上角
-  pending.x = (e.clientX - rect.left) / rect.width;
-  pending.y = (e.clientY - rect.top) / rect.height;
+  const p = normalizePointer(e.clientX, e.clientY, canvas.getBoundingClientRect());
+  if (!p) return; // 画布尺寸异常（零宽高）时丢弃本次采样
+  pending.x = p.x;
+  pending.y = p.y;
   pending.dirty = true;
 
   const me = state.you && state.sessions.get(state.you);
   if (me) {
-    me.x = pending.x;
-    me.y = pending.y;
+    me.x = p.x;
+    me.y = p.y;
   }
 });
 
@@ -289,3 +295,6 @@ setInterval(() => {
 
 connect();
 requestAnimationFrame(draw);
+
+// 调试句柄：module 作用域不外泄 state，显式暴露只读入口供控制台/自动化检查。
+window.PULSE = { state };
