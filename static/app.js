@@ -10,7 +10,7 @@
  * 这里只保留状态、副作用（DOM/网络/计时器）和绘制。
  */
 
-import { normalizePointer, appendPositionSample } from "./pure.js";
+import { normalizePointer, appendPositionSample, canSend } from "./pure.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -68,6 +68,8 @@ function onMessage(e) {
       }
       document.getElementById("you-label").textContent =
         `你是 ${e.you} · 移动鼠标——在线的人都会看到你`;
+      // 重连后旧连接的 pending 作废：清掉发送标记，等新的鼠标输入再发
+      pending.dirty = false;
       break;
     case "join":
       state.sessions.set(e.session.id, {
@@ -282,10 +284,12 @@ canvas.addEventListener("mousemove", (e) => {
   }
 });
 
-// 每 50ms（20Hz）上报一次最新坐标；没动过或连接不在 OPEN 状态就不发。
-// 光标数据是可丢弃的——这一帧没发出去，下一帧覆盖它就行。
+// 每 50ms（20Hz）上报一次最新坐标。
+// canSend 拦三种情况：没有新坐标、连接不在 OPEN、待发字节超预算（慢连接丢帧不积压）。
+// 光标数据是可丢弃的——这一帧没发出去，下一帧 pending 覆盖它就行。
 setInterval(() => {
-  if (!pending.dirty || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!ws) return; // 首次连接建立前没有可发送的对象
+  if (!canSend(pending.dirty, ws.readyState === WebSocket.OPEN, ws.bufferedAmount)) return;
   ws.send(JSON.stringify({ type: "cursor", x: pending.x, y: pending.y }));
   pending.dirty = false;
 }, 50);

@@ -30,3 +30,14 @@ export function appendPositionSample(buf, sample, now, maxAgeMs = 1000, maxLen =
   while (buf.length > maxLen) buf.shift();
   return buf;
 }
+
+// SEND_BUDGET_BYTES 是 WebSocket 待发字节的预算上限（64 KiB）。
+// 超过说明对端消费不过来；这只是应用层发送策略，不代表浏览器有这个硬上限。
+export const SEND_BUDGET_BYTES = 64 * 1024;
+
+// canSend 决定这一帧光标要不要发（纯函数，便于测试）。
+// 三个条件：有新坐标（dirty）且连接处于 OPEN 且待发字节未超预算。
+// 超预算时丢弃本帧——pending 始终保留最新值，下一帧覆盖式重发，不排队积压。
+export function canSend(dirty, readyStateOpen, bufferedAmount, budgetBytes = SEND_BUDGET_BYTES) {
+  return dirty && readyStateOpen && bufferedAmount < budgetBytes;
+}
