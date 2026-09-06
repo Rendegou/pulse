@@ -6,13 +6,13 @@
 
 ## 从哪里继续
 
-先打开 [学习入口](docs/README.md)，然后做 [课程 L1：接通插值绘制](docs/03-handwritten-lessons.md#l1-接通插值绘制)。当前代码已经有光标上报、缓冲和插值函数；下一步是让插值结果真正到达 Canvas。
+先打开 [新协作路线](docs/07-ai-assisted-roadmap.md) 和 [当前进度](docs/05-progress-and-validation.md)。L1–L3 已有实现，下一包是点击脉冲与必要输入保护；之后补可靠连接，再进入固定二维博客街区。
 
-本文档包基于 2026-09-05 的本地提交 `669a059` 和工作区源码整理。文档版本是教程 v1.0，不表示产品已经达到 v1.0 发布标准。
+计划于 2026-09-07 按本地提交 `4946e28` 与实际源码更新为协作计划 v2；这不表示产品达到 v2 发布标准。
 
 ## 本地运行
 
-安装与 `go.mod` 相容的 Go 工具链；当前声明为 Go 1.25。Node.js 只用于 JavaScript 语法检查及后续纯函数测试，前端没有 npm 构建步骤。
+安装与 `go.mod` 相容的 Go 工具链；当前声明为 Go 1.25。Node.js 用于 JavaScript 语法检查和已有纯函数测试，前端没有 npm 构建步骤。
 
 ```powershell
 Set-Location 'D:\VenerableP\pulse'
@@ -25,6 +25,8 @@ go run .
 go test ./...
 go vet ./...
 node --check static/app.js
+node --check static/pure.js
+node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs
 git diff --check
 ```
 
@@ -32,6 +34,6 @@ git diff --check
 
 ## 协作方式
 
-你写代码，助手解释调用链、出小任务、给分级提示并审查。需要示范时只示范当前卡住的一段，再安排一个由你独立完成的相似题。每个函数或方法都写中文注释，说明用途、契约和必要的副作用。
+AI 完成当前功能包的常规实现、接线、测试和文档；你每轮练一个核心函数或反例测试，并解释关键调用链和失败边界。说“提示”时仍采用分级提示；说“完整实现”时可直接由 AI 完成，随后用一个小改动检查理解。每个函数或方法都写中文注释，说明用途、契约和必要的副作用。
 
 项目已有推送 `main` 后部署的工作流。本地学习和提交不等于发布；推送前要知道这会触发部署。

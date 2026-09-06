@@ -4,7 +4,7 @@
 
 ## 1. HTML 为什么能调用 JavaScript
 
-`static/index.html` 创建 `canvas#c`、`ws-label`、`you-label` 和指标元素。文档尾部的 `<script src="/app.js">` 加载代码。由于这些元素先出现，脚本执行到 `document.getElementById('c')` 时可以找到画布。
+`static/index.html` 创建 `canvas#c`、`ws-label`、`you-label` 和指标元素。文档尾部的 `<script type="module" src="/app.js">` 加载代码。由于这些元素先出现，脚本执行到 `document.getElementById('c')` 时可以找到画布。
 
 `app.js` 最后的 `connect()` 是立即调用；`requestAnimationFrame(draw)` 是把函数交给浏览器，等待浏览器安排一次绘制回调。`draw` 末尾再次注册自己，才形成持续绘制。
 
@@ -32,7 +32,7 @@
 
 ## 3. 为什么不在 mousemove 中直接 send
 
-现有 listener 只更新 `pending`。全局唯一的 50ms interval 查看 `dirty` 和连接状态，只发送最新位置。多次移动可以覆盖同一个 pending，避免把过期路径一条条排队。
+现有 listener 通过 pure.js 的 normalizePointer 换算后更新 `pending` 和自己的坐标。全局唯一的 50ms interval 使用 canSend 查看 `dirty`、连接状态和 bufferedAmount 预算，只发送最新位置。多次移动可以覆盖同一个 pending，避免把过期路径一条条排队。
 
 自己的光点直接使用本地坐标；远端只能在消息抵达后知道新位置。20Hz 是发送采样频率，`requestAnimationFrame` 是绘制调度，二者没有必要相同。
 
@@ -113,19 +113,25 @@ channel 容量 64 表示最多缓冲 64 项，不是 64 KiB。每一项的字节
 
 时刻晚于最新样本时保持最后位置；早于最旧样本时使用第一点；无缓冲用出生/最近已知位置。不外推，因为远端停止后不能凭空继续运动。
 
-## 10. 插值函数正确，为什么画面仍不对
+## 10. 现在插值结果如何进入画面
 
-当前 `draw()` 的顺序是：
+2026-09-07 的实际链路为：
 
 ```text
-从 s.x/s.y 得到 x/y
-  → 计算 p = samplePosition(...)
-  → 仍用原来的 x/y 调 ctx.arc
+cursor 到达 → appendPositionSample 裁剪历史 + 更新 s.x/s.y 最后已知位置
+  → draw 对自己选即时 s，对远端调用 samplePosition
+  → p.x/p.y 乘 CSS 尺寸 → ctx.arc
 ```
 
-`p` 没有参与实际绘制。并且远程 cursor 已改为进缓冲，不再直接更新 s.x/s.y，所以画面可能停留在原位置。L1 要让你亲手把数据接到绘制端；仅给 samplePosition 写测试不能验证这条连接。
+旧版本曾计算 p 却仍画旧坐标；该接线已完成，不再作为待办。自己的光环仍使用本地即时坐标。
 
-修正后的预期链路应是“选本地/远程位置 → 归一化转 CSS 像素 → 绘制”。用断点检查 `p`、`x/y`、`ctx.arc` 参数，并在双页面中实际观察。
+当前 samplePosition 在相邻两点间执行 Hermite，tangentAt 根据邻居时间差估速，转折或平坦处归零。切线乘段时长后交给 hermite；s.playing 按段起点时间戳缓存切线，因此 samplePosition 会修改 session 的渲染状态，不是纯函数。
+
+冻结的是当前段切线，不是把整份队列冻结。后续段仍可能用新邻居估速，不能直接宣称全局速度连续；转折归零也不等于所有单调输入都不会过冲。缓冲按追加时的时间/条数裁剪，无缓冲时回退最近已知位置。
+
+static/pure.js 当前包含无 DOM/时钟依赖的 normalizePointer、appendPositionSample、canSend；appendPositionSample 会原地修改 buf，因此“可独立测试”不等于“所有导出都无副作用”。window.PULSE.state 也仍是可变引用，并非不可修改的只读快照。
+
+work/interpolation-lab.mjs 包含历史算法副本，不能证明当前主程序回归通过。后续需要对真实生产入口做固定时间测试，并在两页观察结果是否被实际绘制；只测计算函数不能代替页面验证。
 
 ## 11. Go 指标不是所有内存的别名
 

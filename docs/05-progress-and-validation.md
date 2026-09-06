@@ -2,99 +2,83 @@
 
 ## 1. 当前快照
 
-- 日期：2026-09-05。
-- 本地源码 HEAD：`669a059`。
-- 文档工作开始前：`git status --short` 无改动。
-- 已有课程成果：真实 presence、cursor 上报/广播、wss 选择、自动部署配置。
-- 当前代码缺口：插值返回值未接入 draw；前端有过时 TODO；服务端可靠性与输入预算尚未完成。
-- 当前最先执行：L1；若调用链讲不清，先做 L0 的 20 分钟定位题。
-- 当前学习能力尚未独立测评，不能把“源码已存在”记成“已掌握”。
+- 核对日期：2026-09-07；源码 HEAD：`4946e28`。
+- 文档修改前 `git status --short` 无变更；Git 提示用户级 ignore 文件权限不足，但仓库状态与日志命令正常返回。
+- 本次只更新文档与 AGENTS.md，不修改产品代码，不提交、推送或部署。
+- 当前下一步：[功能包 A：点击脉冲](07-ai-assisted-roadmap.md#5-接下来的功能包)。旧 L0–L10 是课程库，不再顺序通关。
 
-## 2. 本次验证边界
+## 2. 实现证据
 
-在本地源码执行：
+### 已有且不必重做
 
-- `go test ./...`：成功返回 `[no test files]`，无行为测试可运行。
-- `go vet ./...`：无诊断。
-- `node --check static/app.js`：语法通过。
-- `git diff --check`：文档编辑前通过。
+- `static/app.js / draw` 已消费选定的 `p.x/p.y`；远程插值接线已完成。
+- `aa76676`、`ef559c4`：Hermite、按时间差计算切线、转折归零，以及 `s.playing` 缓存当前段切线。仍使用接收时间和 120ms 延迟；不是发送时间映射或自适应缓冲。
+- `928aa4c`：`work/retrieval-l2.mjs` 有 lerp/sampleAt 练习及返回类型、终点边界的修正记录；本轮没有观察闭卷过程。
+- `730d99b`：`static/pure.js` 中 normalizePointer 被 mousemove 消费；HTML 已为 ES module。
+- `c18e728`：appendPositionSample 保留 1 秒/32 条双上限，末项同时间戳覆盖；cursor 同时更新 last-known 位置。时间裁剪发生在追加时，不是静止后由定时器自动清空。
+- `4946e28`：发送前检查 dirty、OPEN、64 KiB bufferedAmount；welcome 清 pending。它是发送预算保护，不等于完整的重连隔离或服务端限流。
+- main.go 仍有真实 presence/cursor/metrics、Hub 快照、容量 64 的发送队列与现有写超时。
 
-当前没有运行浏览器交互验证、race detector、Linux sensor、负载测试或公网发布验证。本次交付主要是文档和项目规则；插值修复保留为你的首个手写任务。
+### 尚未实现或需要后续验收
 
-文档交付检查：12 份新编写或修订的 Markdown 可解析，25 个本地链接及所引用锚点通过；两个项目 Skill 通过 frontmatter/命名校验。原型与概念原件单独归档，不套用新教程的章节格式要求。
+- pulse 完整事件链、必填字段存在性校验、读上限、应用级限频和连接预算。
+- welcome 写失败处理、writer 失败唤醒 reader、ping/pong、慢消费者退出策略与前端旧连接回调隔离。
+- Go 行为测试、快照 DTO 边界测试、CI 中的行为测试执行。
+- 真实 Host Radar、房屋/文章共享存储、作者权限和 GitHub 博客导入。
+- 当前插值的生产函数回归与真实网络对照。本轮不证明全输入无过冲，也不保证冻结切线后所有相邻段速度连续。
 
-## 3. 常用检查命令
+独立 World Demo 仍是原型；不能把它的本机存储、示例文章和演示邻居记成生产多人世界。
 
-在项目根目录的 PowerShell 7 中：
+## 3. 2026-09-07 本轮验证
+
+- `node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs`：18/18 通过，实际导入 static/pure.js。
+- `node --check static/app.js`、`node --check static/pure.js`：语法通过。
+- `node work/interpolation-lab.mjs`：运行成功，展示旧 Catmull–Rom 与实验 Hermite 的数值比较。脚本含复制算法及历史注释，不是当前 samplePosition/playing 的回归测试。
+- `go test ./...`：默认 Go 缓存目录首次访问被拒；将 GOCACHE 临时设为系统 TEMP 下的 pulse-plan-audit-go-cache 后成功，结果 `[no test files]`。没有 Go 行为覆盖。
+- `go vet ./...`：在同一临时缓存设置下通过，无诊断。
+- 浏览器双窗口、真实 WS 集成、race detector、压测、Linux sensor、公网服务和部署结果：本轮未验证。
+
+现有测试的具体限制：L3b 中“1000 条快速样本”使用相同时间戳，主要验证覆盖；另一条“两个上限同时作用”用不同时间戳实际验证数量裁剪。L3c 单测只验证 canSend 决策，不证明 welcome 清 pending、真实 send 次数或旧回调隔离。AI 在对应功能包补链路用例，不要求用户为此重写全部脚手架。
+
+本轮文档检查：12 份 Markdown 的本地引用及围栏结构检查通过，31 个本地链接（含引用锚点）有效；`git diff --check` 通过。未使用浏览器做 Markdown 渲染检查。历史 2026-09-05 的检查不能当成本轮结果。
+
+## 4. 常用检查命令
+
+在仓库根目录的 PowerShell 7 中：
 
 ```powershell
 git status --short
-gofmt -l .
-go vet ./...
-go test ./...
 node --check static/app.js
+node --check static/pure.js
+node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs
+go test ./...
+go vet ./...
 git diff --check
 ```
 
-L2 创建纯函数测试后，使用该实际文件路径，例如：
+若默认 Go 构建缓存因本机权限不可写，可仅对当前 shell 设置：
 
 ```powershell
-node --test static/interpolation.test.mjs
+$env:GOCACHE = Join-Path $env:TEMP 'pulse-plan-audit-go-cache'
+go test ./...
+go vet ./...
 ```
 
-当前没有该文件，不应现在运行并把缺文件当成项目测试失败。
+插值实验可单独运行 `node work/interpolation-lab.mjs`，但不能替代产品测试。未来增加测试后按实际文件更新命令；不运行不存在的 `static/interpolation.test.mjs`。
 
-涉及并发行为时运行 `go test -race ./...`。race detector 只能检查执行到的路径，且需要受支持的工具链环境；Windows 若因 C 编译器/CGO 配置缺失而失败，记录错误，转到配置了相应工具链的 Linux CI 运行，不能伪装为通过。[Go race detector](https://go.dev/doc/articles/race_detector)
+并发改动在支持的工具链运行 `go test -race ./...`，记录实际触达路径；Windows 缺 CGO/C 编译器时记录阻塞，再在具备工具链的 CI 验证。不得把未运行记成通过。
 
-## 4. 测试应覆盖什么
+## 5. 产品与能力分别记录
 
-### 纯函数
+- **L1：** 读懂待本轮确认；有实现；本轮仅源码/语法验证；独立迁移未测。
+- **L2：** 有实现与带修正记录的练习；历史实验能运行；当前生产插值回归未补齐；本轮独立复写未测。
+- **L3：** 有实现，18 项相关测试通过；由另一个 agent 协助推进，具体逐函数作者不作推断；真实页面链路和独立迁移待确认。
+- **A/B/C/D：** 计划阶段。本轮没有开始实现。
 
-插值边界、归一化、样本裁剪、idle 判定、指标差分。使用固定时间与手算输入，避免真实 sleep。预期结果来自契约，不能再实现一遍相同算法当 oracle。
+用户说“弄好了”是有效进展反馈；验收记录同时保留证据层级。未知不等于不会，不因为能力记录尚缺而要求重做已经交付的所有代码。
 
-### Go 单元与集成
+## 6. 下一轮留给执行 agent
 
-消息缺字段/非法坐标、Snapshot 值隔离、入队与注销并发、welcome 失败、writer 失败清理、慢消费者退出。集成服务绑定本地随机端口，测试拥有自己创建的所有连接并负责关闭。
+当前包 A。先核对最新源码，避免别的 agent 已完成后重复实现。用户练习只留一个校验反例；AI 完成剩余功能和检查。包完成后在此新增：源码版本、行为、检查、AI/用户分工、学习证据、唯一下一步。
 
-### 页面行为
-
-两页打开、双向移动、停止、点击、刷新、断线后重连。后台标签页可能降频，平滑度比较优先并排可见窗口；记录浏览器、画布尺寸和观察环境。
-
-每个测试要能说清“如果实现错在哪里，它为什么会失败”。只测 `samplePosition` 无法证明 `ctx.arc` 使用了返回值。
-
-### 生产与性能
-
-仅在明确做发布或压测时验证；保存环境、样本、时长与原始结果。不得把历史对话里“部署成功”当作当天可用性证据。
-
-## 5. 一页学习记录模板
-
-复制以下模板到本节末尾或独立的 `docs/learning-log.md`（需要时再建）：
-
-```text
-日期 / 课程：
-本次唯一目标：
-开始前能解释什么：
-输入与预期结果（先写）：
-实际修改的文件与函数：
-我自己写的部分：
-使用了哪级提示 / 哪段示范：
-检查命令及结果：
-页面或集成观察：
-一次错误：现象 → 假设 → 证据 → 原因 → 修正
-仍未验证：
-下次不看答案要重写的小题：
-```
-
-## 6. 能力记录用四个独立状态
-
-对每一课分别记录：读懂、自己实现、通过验证、独立迁移。允许“借助示范实现，尚未迁移”，这比只打一个已完成勾更能决定下一次怎么练。
-
-目前 L0–L10 均未在这套新验收方式下关闭。已有代码属于有效起点，不要求你重做；通过一个小检查即可把已掌握部分跳过。
-
-## 7. 本次文档更新说明
-
-- 把旧的泛化课程改成沿当前代码的小任务，并纠正 cursor/delta 命名。
-- 补充事件、Handler、Session、引用、快照、goroutine、channel 和插值的教材。
-- 增加代码规范、分级提示、独立迁移和证据记录。
-- 保留最初原型与概念文档作为参考，同时明确其模拟数据与当前能力边界。
-- 补齐 Host Radar 的观测前提和产品路线，保留高并发目标但不许诺 2C4G 指标。
+推荐后续 A → B → C-World → D；Host Radar 保留支线。原因与交接提示见 [新路线](07-ai-assisted-roadmap.md)。
