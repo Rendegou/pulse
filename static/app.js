@@ -10,7 +10,7 @@
  * 这里只保留状态、副作用（DOM/网络/计时器）和绘制。
  */
 
-import { normalizePointer } from "./pure.js";
+import { normalizePointer, appendPositionSample } from "./pure.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -81,22 +81,19 @@ function onMessage(e) {
       break;
     }
     case "cursor": {
-      // 别人的光标增量到达。自己的回声跳过（本地已乐观更新）。
+      // 别人的光标增量到达：进有界插值缓冲（时间+条数双上限），
+      // 自己的回声跳过（本地已乐观更新，回声只会把点拽回旧位置）。
       if (e.id === state.you) break;
       const s = state.sessions.get(e.id);
       if (s) {
-        //往s.buf推入新点
+        const now = performance.now();
         if (!s.buf) s.buf = [];
-        s.buf.push({ t: performance.now(), x: e.x, y: e.y });
-        // 顺手删掉 1 秒前的旧点，别让队列无限长
-        const cutoff = performance.now() - 1000;
-        while (s.buf.length > 0 && s.buf[0].t < cutoff) {
-          s.buf.shift();
-        }
+        appendPositionSample(s.buf, { t: now, x: e.x, y: e.y }, now);
+        // 同步刷新最后已知位置：缓冲被时间清空后，
+        // samplePosition 的兜底停在上次真实位置，而不是瞬移回出生点
+        s.x = e.x;
+        s.y = e.y;
       }
-      // TODO(方案C 接线①): 把上面"直接改坐标"换成往 s.buf 推入
-      //   { t: performance.now(), x: e.x, y: e.y }
-      // （没有 buf 就先建数组；顺手删掉 1 秒前的旧点，别让队列无限长）
       break;
     }
     case "metrics":

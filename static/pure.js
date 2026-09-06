@@ -13,3 +13,20 @@ export function normalizePointer(clientX, clientY, rect) {
     y: Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)),
   };
 }
+
+// appendPositionSample 把一条远程位置样本追加进缓冲，并维持两个上限：
+// 时间上只保留最近 maxAgeMs 毫秒，条数上最多 maxLen 条（先按时间清，再按条数砍）。
+// 相同时间戳的样本保留后到的一个（去重策略固定在此，不允许除零重发）。
+// 直接原地修改 buf 并返回它；now 由调用方传入（函数内不读时钟，方便测试）。
+export function appendPositionSample(buf, sample, now, maxAgeMs = 1000, maxLen = 32) {
+  const last = buf[buf.length - 1];
+  if (last && last.t === sample.t) {
+    buf[buf.length - 1] = sample; // 同时间戳：后到覆盖先到
+  } else {
+    buf.push(sample);
+  }
+  const cutoff = now - maxAgeMs;
+  while (buf.length > 0 && buf[0].t < cutoff) buf.shift();
+  while (buf.length > maxLen) buf.shift();
+  return buf;
+}
