@@ -27,21 +27,21 @@ func TestValidatePulse(t *testing.T) {
 	}
 
 	// 合法：{x:0, y:0} 是真实坐标，不能被误判成"没传"
-	if err := check(`{"type":"pulse","clientEventId":"c0","x":0,"y":0}`); err != nil {
+	if err := check(`{"type":"pulse","v":2,"clientEventId":"c0","wx":0,"wy":0}`); err != nil {
 		t.Errorf("零坐标应合法, 得到 %v", err)
 	}
 
 	// 非法三条：期望被拒绝（err != nil 是正确行为），放行才是失败
-	if err := check(`{"type":"pulse","clientEventId":"c0","y":0}`); err == nil {
+	if err := check(`{"type":"pulse","v":2,"clientEventId":"c0","wy":0}`); err == nil {
 		t.Errorf("缺 x 字段应被拒绝, 但被放行了")
 	}
 
-	if err := check(`{"type":"pulse","clientEventId":"c0","x":null,"y":0}`); err == nil {
+	if err := check(`{"type":"pulse","v":2,"clientEventId":"c0","wx":null,"wy":0}`); err == nil {
 		t.Errorf("x 显式为 null 应被拒绝, 但被放行了")
 	}
 
-	if err := check(`{"type":"pulse","clientEventId":"c0","x":-0.1,"y":0}`); err == nil {
-		t.Errorf("x 为 -0.1 应被拒绝, 但被放行了")
+	if err := check(`{"type":"pulse","v":2,"clientEventId":"c0","wx":1e8,"wy":0}`); err == nil {
+		t.Errorf("wx 超出世界范围(1e8)应被拒绝, 但被放行了")
 	}
 
 }

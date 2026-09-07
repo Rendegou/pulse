@@ -6,7 +6,7 @@
 
 ## 现在看这三处
 
-当前 UI 重构请先读 [给 KIMI 的点线空间重构方案](08-ui-redesign-brief-for-kimi.md)：已确认开放书房、可编辑墙/门/家具、明暗与双语，附视觉图和分轮验收。该方案按 `5a987f7` 核对界面；下列旧课程进度仍需结合最新源码判断。
+当前 UI 重构请先读 [粒子地表世界：体验修订与 KIMI 交接](09-particle-world-experience.md)，并运行 [交互 Demo](../outputs/pulse-particle-world-demo.html)：巨大曲面地表漫游 → 靠近房屋 → 连续下降、屋顶淡去 → 文章阅读。该方案按 `3f2b9d9` 核对；[08 旧书房方案](08-ui-redesign-brief-for-kimi.md) 的固定房间首页构图已被取代，主题、双语、自由搭建等目标保留。下列课程进度仍需结合最新源码判断。
 
 1. [新执行路线与 agent 交接文本](07-ai-assisted-roadmap.md)：当前下一包是点击脉冲，不再从 L1 重来。
 2. [进度与验证](05-progress-and-validation.md)：确认已有实现、实际检查和仍缺的证据。

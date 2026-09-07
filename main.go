@@ -135,19 +135,24 @@ type metricsMsg struct {
 	SensorOnline bool    `json:"sensor_online"` // Host Radar sensor 是否在线
 }
 
-// cursorMsg 是浏览器 → 服务端的光标上报（20Hz 采样后的归一化坐标）。
+// cursorMsg 是浏览器 → 服务端的光标上报（20Hz 采样）。
+// v=2 起 WX/WY 是连续平面世界坐标（不再是屏幕归一化 0..1）；
+// 旧版 x/y 字段的语义在 v2 中明确废弃，协议变化以 v 字段为准。
 type cursorMsg struct {
-	Type string  `json:"type"`
-	X    float64 `json:"x"`
-	Y    float64 `json:"y"`
+	Type string   `json:"type"`
+	V    int      `json:"v"`
+	WX   *float64 `json:"wx"`
+	WY   *float64 `json:"wy"`
 }
 
 // cursorDeltaMsg 是服务端广播给其他人的光标增量。
+// cursorDeltaMsg 是服务端广播的光标增量（v=2：世界坐标）。
 type cursorDeltaMsg struct {
 	Type string  `json:"type"`
+	V    int     `json:"v"`
 	ID   string  `json:"id"`
-	X    float64 `json:"x"`
-	Y    float64 `json:"y"`
+	WX   float64 `json:"wx"`
+	WY   float64 `json:"wy"`
 }
 
 // msgHead 只取消息的 type 字段，用于按类型白名单分发到各自的解析结构。
@@ -160,9 +165,10 @@ type msgHead struct {
 // 指针为 nil 即"字段不存在"——这是必填校验的前提。
 type pulseMsg struct {
 	Type          string   `json:"type"`
+	V             int      `json:"v"`
 	ClientEventID string   `json:"clientEventId"`
-	X             *float64 `json:"x"`
-	Y             *float64 `json:"y"`
+	WX            *float64 `json:"wx"`
+	WY            *float64 `json:"wy"`
 }
 
 // pulseBroadcastMsg 是服务端校验通过后广播的脉冲事件。
@@ -173,8 +179,9 @@ type pulseBroadcastMsg struct {
 	EventID       string  `json:"eventId"`
 	ClientEventID string  `json:"clientEventId"` // 原样回传，供点击方对账
 	ID            string  `json:"id"`
-	X             float64 `json:"x"`
-	Y             float64 `json:"y"`
+	V             int     `json:"v"`
+	WX            float64 `json:"wx"`
+	WY            float64 `json:"wy"`
 	At            int64   `json:"at"`
 }
 
@@ -189,15 +196,19 @@ func validatePulse(m pulseMsg) (float64, float64, error) {
 	if m.ClientEventID == "" || len(m.ClientEventID) > 64 {
 		return 0, 0, errors.New("clientEventId 缺失或超长")
 	}
-	if m.X == nil || m.Y == nil {
+	if m.V != 2 {
+		return 0, 0, errors.New("协议版本不支持（需要 v=2）")
+	}
+	if m.WX == nil || m.WY == nil {
 		return 0, 0, errors.New("缺少坐标字段")
 	}
-	x, y := *m.X, *m.Y
+	x, y := *m.WX, *m.WY
 	if math.IsNaN(x) || math.IsNaN(y) || math.IsInf(x, 0) || math.IsInf(y, 0) {
 		return 0, 0, errors.New("坐标必须是有限数")
 	}
-	if x < 0 || x > 1 || y < 0 || y > 1 {
-		return 0, 0, errors.New("坐标越界 [0,1]")
+	// 世界坐标有界但不限 [0,1]：连续平面世界，防御性上限 1e7
+	if math.Abs(x) > 1e7 || math.Abs(y) > 1e7 {
+		return 0, 0, errors.New("坐标超出世界范围")
 	}
 	return x, y, nil
 }
@@ -563,17 +574,24 @@ func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
-			// 坐标约定为 0..1 归一化，越界的一律丢弃（防异常客户端）
-			if msg.X < 0 || msg.X > 1 || msg.Y < 0 || msg.Y > 1 {
+			// v2 世界坐标：必须带版本号、字段存在、有限、世界范围内
+			if msg.V != 2 || msg.WX == nil || msg.WY == nil {
+				continue
+			}
+			wx, wy := *msg.WX, *msg.WY
+			if math.IsNaN(wx) || math.IsNaN(wy) || math.IsInf(wx, 0) || math.IsInf(wy, 0) {
+				continue
+			}
+			if math.Abs(wx) > 1e7 || math.Abs(wy) > 1e7 {
 				continue
 			}
 
 			// 改坐标必须持锁：Snapshot 和广播都在别处读这些字段
 			hub.mu.Lock()
-			s.X, s.Y = msg.X, msg.Y
+			s.X, s.Y = wx, wy
 			hub.mu.Unlock()
 
-			hub.Broadcast(cursorDeltaMsg{Type: "cursor", ID: s.ID, X: s.X, Y: s.Y})
+			hub.Broadcast(cursorDeltaMsg{Type: "cursor", V: 2, ID: s.ID, WX: wx, WY: wy})
 
 		case "pulse":
 			var pm pulseMsg
@@ -600,8 +618,9 @@ func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 				EventID:       fmt.Sprintf("e%d", hub.eventSeq.Add(1)),
 				ClientEventID: pm.ClientEventID,
 				ID:            s.ID,
-				X:             x,
-				Y:             y,
+				V:             2,
+				WX:            x,
+				WY:            y,
 				At:            time.Now().UnixMilli(),
 			})
 		default:

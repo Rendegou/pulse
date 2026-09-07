@@ -75,3 +75,30 @@ export function ratePerSecond(times, now, windowMs) {
   for (const t of times) if (t >= cutoff) n++;
   return n / (windowMs / 1000);
 }
+
+// ---------- 世界投影（纯函数，可单测） ----------
+
+// projectCalc 把世界坐标投影到屏幕。局部曲面近似：中心平展、四周压缩。
+// view = { cx, cy, zoom, W, H }；R 始终大于可见半径，边界落在视口外。
+// z 是物件相对地表的高度（世界单位）。
+export function projectCalc(view, x, y, z = 0) {
+  const R = Math.hypot(view.W, view.H) * 0.78;
+  const u = (x - view.cx) * view.zoom,
+    v = (y - view.cy) * view.zoom;
+  const q = Math.sqrt(1 + (u * u + v * v) / (R * R));
+  return {
+    x: view.W * 0.5 + u / q,
+    y: view.H * 0.53 + (v / q) * 0.82 - z * view.zoom * 0.62,
+    scale: view.zoom / q,
+  };
+}
+
+// unprojectCalc 是 projectCalc(z=0) 的逆变换：把地表屏幕点反解为世界坐标。
+// 拖动锚定和光标缩放依赖这个互逆关系。
+export function unprojectCalc(view, x, y) {
+  const R = Math.hypot(view.W, view.H) * 0.78;
+  const u = x - view.W * 0.5,
+    v = (y - view.H * 0.53) / 0.82;
+  const q = Math.sqrt(Math.max(0.05, 1 - (u * u + v * v) / (R * R)));
+  return { x: view.cx + u / (view.zoom * q), y: view.cy + v / (view.zoom * q) };
+}

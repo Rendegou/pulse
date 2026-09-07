@@ -1,62 +1,41 @@
-/* tokens.css — 主题语义变量：一套语义，两种光环境。
-   所有组件只引用语义变量，不写死颜色；Canvas 调色板也从这里读取（启动/换题时各读一次并缓存）。 */
+/* tokens.css — 主题语义变量：一套语义，明暗两套光环境。
+   候选色来自粒子地表 Demo 的实测调色板；Canvas 调色板也从这里读取（换题时缓存一次）。 */
 
 :root {
   color-scheme: light;
+  --bg: #eef2ec;
+  --ink: #283f41;
+  --muted: #58716e;
+  --line: #b8c8bf;
+  --panel: #f6f8f0ee;
+  --accent: #805734;
+  --focus: #237761;
 
-  /* 界面 */
-  --surface-page: #f6f8fa;
-  --surface-panel: #ffffff;
-  --text-primary: #202a34;
-  --text-secondary: #5a6b7a;
-  --border-subtle: #d8dfe7;
-  --focus-ring: #4267b2;
-
-  /* 状态 */
-  --status-connected: #2e9e5b;
-  --status-error: #c4453c;
-
-  /* 空间（点线房间） */
-  --room-plane: #eef1f5;      /* 地面轻微平面差异 */
-  --line-structure: #303c49;  /* 结构轮廓 */
-  --line-object: #6b7c8c;     /* 普通物件 */
-  --line-guide: #b9c4cf;      /* 辅助/指引 */
-  --point-handle: #4267b2;    /* 可编辑抓手 */
-  --book-selected: #4267b2;
-  --drop-target: #4267b2;
-
-  /* 实时层 */
-  --cursor-local: #4267b2;
-  --cursor-remote: #2e9e8f;
-  --pulse-ring: #4267b2;
-  --radar-live: #c46a2b;
-  --accent: #4267b2;
+  /* 世界（地表/房屋/粒子） */
+  --world-land: #628575;
+  --world-water: #bac8c0;
+  --world-contour: #91a998;
+  --world-line: #456559;
+  --world-fill: #e5ece1;
+  --world-roof: #5b7e6a;
+  --world-paper: #3d6459;
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
+  --bg: #101b20;
+  --ink: #e0ece7;
+  --muted: #90a7a4;
+  --line: #34484a;
+  --panel: #142328ee;
+  --accent: #d7b38c;
+  --focus: #9ed3c0;
 
-  --surface-page: #151e27;
-  --surface-panel: #1a2430;
-  --text-primary: #e8eef3;
-  --text-secondary: #93a3b2;
-  --border-subtle: #2a3644;
-  --focus-ring: #8aabee;
-
-  --status-connected: #4cc07a;
-  --status-error: #e0685f;
-
-  --room-plane: #1b2631;
-  --line-structure: #b6c4d2;
-  --line-object: #7d90a2;
-  --line-guide: #3a4a5c;
-  --point-handle: #8aabee;
-  --book-selected: #8aabee;
-  --drop-target: #8aabee;
-
-  --cursor-local: #8aabee;
-  --cursor-remote: #4cc0b0;
-  --pulse-ring: #8aabee;
-  --radar-live: #e8955a;
-  --accent: #8aabee;
+  --world-land: #95b9ad;
+  --world-water: #496972;
+  --world-contour: #698d80;
+  --world-line: #a8c5b6;
+  --world-fill: #14262a;
+  --world-roof: #88afa0;
+  --world-paper: #c4d8c7;
 }

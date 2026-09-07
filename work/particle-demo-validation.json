@@ -1,0 +1,86 @@
+{
+  "passed": true,
+  "initial": {
+    "camera": {
+      "x": 0,
+      "y": 0,
+      "zoom": 0.66
+    },
+    "inside": null,
+    "selected": null,
+    "houses": 30,
+    "particles": 7371,
+    "frameMs": 11.300000000745058,
+    "tick": 6,
+    "flight": false,
+    "gesture": false,
+    "theme": "dark",
+    "lang": "zh"
+  },
+  "mid": {
+    "camera": {
+      "x": 0,
+      "y": 0,
+      "zoom": 1.2077595857158112
+    },
+    "inside": null,
+    "selected": "origin",
+    "houses": 9,
+    "particles": 8824,
+    "frameMs": 7.1000000005587935,
+    "tick": 121,
+    "flight": true,
+    "gesture": false,
+    "theme": "dark",
+    "lang": "zh"
+  },
+  "far": {
+    "camera": {
+      "x": 2641520,
+      "y": -772240,
+      "zoom": 0.5
+    },
+    "inside": null,
+    "selected": null,
+    "houses": 50,
+    "particles": 12866,
+    "frameMs": 24.700000000186265,
+    "tick": 266,
+    "flight": false,
+    "gesture": false,
+    "theme": "dark",
+    "lang": "zh"
+  },
+  "preferences": {
+    "camera": {
+      "x": 0,
+      "y": 0,
+      "zoom": 0.66
+    },
+    "inside": null,
+    "selected": null,
+    "houses": 30,
+    "particles": 7371,
+    "frameMs": 10.099999999627471,
+    "tick": 318,
+    "flight": false,
+    "gesture": false,
+    "theme": "light",
+    "lang": "en"
+  },
+  "errors": [],
+  "checks": [
+    "projection roundtrip",
+    "wheel anchor",
+    "drag",
+    "continuous descent",
+    "article DOM",
+    "return",
+    "deterministic travel",
+    "bounded working set",
+    "theme/locale persistence",
+    "mobile layout and entry",
+    "reduced motion"
+  ],
+  "screenshots": 6
+}

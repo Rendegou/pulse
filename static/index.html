@@ -1,19 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PULSE · 我的书房</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PULSE · 粒子地表漫游</title>
 <script>
 // 首屏防闪：绘制前读本地偏好设置 data-theme（与 preferences.js 同规则的最小副本）。
 (function () {
   try {
-    var t = localStorage.getItem("pulse.theme") || "system";
+    var p = JSON.parse(localStorage.getItem("pulse-prefs") || "null") || {};
+    var t = p.theme || "system";
     var dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
-    var l = localStorage.getItem("pulse.lang") || "zh-CN";
-    document.documentElement.lang = l;
+    if (p.lang) document.documentElement.lang = p.lang;
   } catch (e) { /* 存储不可用时跟随默认 */ }
 })();
 </script>
@@ -21,96 +20,61 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<canvas id="world" tabindex="0" data-i18n-aria="worldLabel"></canvas>
 
-<header class="topbar">
-  <div class="brand">PUL<span>S</span>E</div>
-  <div class="space-name" id="space-name">我的书房</div>
-  <div class="controls">
-    <button id="btn-theme" class="ctrl" title="主题">主题</button>
-    <button id="btn-lang" class="ctrl" title="语言">EN</button>
-    <button id="btn-status" class="ctrl" title="运行状态">状态</button>
-    <span class="status-chip" title="连接状态">
-      <span id="ws-dot" class="dot"></span><span id="chip-conns">–</span>
-    </span>
+<header>
+  <div class="brand">pulse</div>
+  <form id="address-form"><input id="address" maxlength="64" data-i18n-aria="addressLabel" data-i18n-ph="address"><button id="go" data-i18n-aria="go">↗</button></form>
+  <div class="tools">
+    <button id="theme"></button>
+    <button id="locale"></button>
+    <button id="status-btn" data-i18n="statusOpen">状态</button>
+    <button id="help" data-i18n="help">玩法</button>
+    <span class="status-chip" title="live"><span id="ws-dot" class="dot"></span><span id="chip-conns">–</span></span>
   </div>
 </header>
 
-<main class="stage">
-  <!-- 点线房间：轴测投影。结构线/物件线/辅助线三档，明暗靠 tokens.css -->
-  <svg id="room" viewBox="0 0 1000 640" preserveAspectRatio="xMidYMid meet" aria-label="书房空间">
-    <!-- 地面 -->
-    <polygon class="room-plane" points="500,570 160,390 500,210 840,390" />
-    <polygon class="ls" points="500,570 160,390 500,210 840,390" />
-    <!-- 左墙 -->
-    <polyline class="ls" points="160,390 160,210 500,30 500,210" />
-    <!-- 右墙 -->
-    <polyline class="ls" points="500,210 500,30 840,210 840,390" />
-    <!-- 墙角线 -->
-    <line class="ls" x1="500" y1="210" x2="500" y2="30" />
+<div class="context"><h1 id="place">无界原野</h1><p id="sub"></p><button id="back" class="action" hidden>↑</button></div>
 
-    <!-- 窗户（右墙，平面跟随墙方向） -->
-    <g class="lo">
-      <polygon points="620,280 745,350 745,235 620,165" />
-      <line x1="682" y1="222" x2="682" y2="292" />
-      <line x1="620" y1="222" x2="745" y2="292" />
-    </g>
+<nav id="nearby" aria-label="nearby"><div class="near-label" id="near-label">附近的空间</div>
+  <button data-near="origin"></button><button data-near="rain"></button><button data-near="letter"></button>
+</nav>
 
-    <!-- 书架（左墙落地） -->
-    <g class="lo">
-      <polyline points="270,415 390,350 390,200 270,265 270,415" />
-      <line x1="270" y1="415" x2="270" y2="265" />
-      <!-- 隔板 -->
-      <line x1="270" y1="365" x2="390" y2="300" />
-      <line x1="270" y1="315" x2="390" y2="250" />
-    </g>
-    <!-- 书（少量真实物件；示例文章，点击交互在第三轮接入） -->
-    <g class="book">
-      <line x1="288" y1="357" x2="288" y2="329" />
-      <line x1="306" y1="347" x2="306" y2="319" />
-      <line x1="324" y1="337" x2="324" y2="311" />
-    </g>
-    <g class="book">
-      <line x1="294" y1="307" x2="294" y2="281" />
-      <line x1="312" y1="297" x2="312" y2="273" />
-    </g>
+<section id="selection" hidden>
+  <h2 id="house-name"></h2><p id="house-desc"></p>
+  <button id="enter" class="primary" data-i18n="enter">向下进入</button>
+  <button id="dismiss" class="secondary" data-i18n="cancel">取消</button>
+  <div id="books" class="book-list" hidden></div>
+</section>
 
-    <!-- 桌子（地面右中） -->
-    <g class="lo">
-      <polygon points="560,430 730,360 800,395 630,465" />
-      <line x1="560" y1="430" x2="560" y2="478" />
-      <line x1="630" y1="465" x2="630" y2="513" />
-      <line x1="800" y1="395" x2="800" y2="443" />
-    </g>
-    <!-- 桌面上的书 -->
-    <g class="book">
-      <line x1="640" y1="408" x2="640" y2="384" />
-      <line x1="656" y1="401" x2="656" y2="377" />
-    </g>
-  </svg>
+<div id="hint"></div><div id="notice" role="status" aria-live="polite"></div>
 
-  <!-- 实时层：访客点/脉冲/雷达弧线（Canvas 叠在 SVG 房间上，共享尺寸） -->
-  <canvas id="c"></canvas>
+<footer class="bottom">
+  <div><div id="coordinates" class="coords">x 0 · y 0</div>
+    <div class="meta"><span class="dot"></span><span id="demo-label" data-i18n="demo">示例房屋 · 真实访客</span></div></div>
+  <div class="controls">
+    <button id="minus" data-i18n-aria="zoomOut">−</button>
+    <span class="zoomlabel" id="zoom-label">1×</span>
+    <button id="plus" data-i18n-aria="zoomIn">+</button>
+    <button id="origin" class="home" data-i18n="home">归处</button>
+  </div>
+</footer>
 
-  <div class="overlay-sub" id="you-label">…</div>
-</main>
+<dialog id="help-dialog"><button class="close" data-close="help-dialog" aria-label="×">×</button>
+  <h2 id="help-title"></h2><p id="help-copy"></p><p id="limit-copy"></p>
+  <button id="system-theme"></button></dialog>
 
-<!-- 运行状态抽屉：原工作台内容，默认收起 -->
-<aside id="drawer" class="drawer" hidden>
+<dialog id="reader"><button class="close" data-close="reader" aria-label="×">×</button>
+  <div class="source" id="article-source"></div><h2 id="article-title"></h2><div id="article-body"></div></dialog>
+
+<!-- 运行状态抽屉：诊断内容（事件流/端口/指标/连接详情），默认收起 -->
+<aside id="drawer" hidden>
   <h3 id="kicker">RUNTIME</h3>
-  <div class="drawer-row"><span id="ws-label">CONNECTING…</span>
-    <span id="sensor-badge" class="sensor-badge off">SENSOR OFFLINE</span></div>
-
-  <div class="section-title" data-i18n="view">VIEW</div>
-  <div class="mode active" data-mode="system">SYSTEM</div>
-  <div class="mode" data-mode="presence">PRESENCE</div>
-  <div class="mode" data-mode="host">HOST RADAR</div>
-
+  <div class="drawer-row"><span id="ws-label">…</span><span id="sensor-badge" class="sensor-badge off">…</span></div>
   <div class="section-title" id="feed-title">EVENT STREAM</div>
   <div class="feed" id="feed"></div>
-
   <div class="section-title" id="ports-title">PORTS · LIVE</div>
   <div class="ports" id="ports"></div>
-
   <div class="metrics">
     <div class="metric"><div class="label">ONLINE</div><div class="value" id="m-conns">0</div></div>
     <div class="metric"><div class="label">HOST/s</div><div class="value" id="m-hostrate">0/s</div></div>

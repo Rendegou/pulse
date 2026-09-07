@@ -39,6 +39,35 @@ const zh = {
   evHost: "→ :{port} · {kind}",
   evFixtureSuffix: " · 演示",
   roomEmpty: "书架上还没有文章",
+  place: "无界原野",
+  sub: "掠过地表，在某一盏灯旁停下来。",
+  hint: "拖动地表 · 滚轮靠近 · 点击房子下降",
+  inHint: "点击桌上的书阅读 · 返回上空继续漫游",
+  demo: "示例房屋 · 真实访客",
+  enter: "向下进入",
+  cancel: "取消",
+  back: "↑ 回到上空",
+  home: "归处",
+  help: "玩法",
+  helpTitle: "从上空，到一本书",
+  helpCopy: "拖动像转动脚下的巨大地表，滚轮或双指缩放。点击一间房子，再选择“向下进入”，相机会连续靠近，屋顶淡去。方向键漫游、+ / − 缩放、Esc 返回。",
+  limits: "世界按坐标生成，房屋是示例；访客是真实连接。地表没有可见球体边缘，缩放有数值保护。相同地点字符串会回到相同位置。",
+  address: "输入一个地点，去那里",
+  addressLabel: "地点字符串",
+  houseDesc: "示例空间，有三篇可阅读的短文。",
+  insideDesc: "屋顶已打开。桌上的书就是文章。",
+  go: "前往",
+  zoomIn: "放大",
+  zoomOut: "缩小",
+  zoomLimit: "已到当前细节尺度，仍可向任意方向漫游。",
+  near: "附近的空间",
+  articleSource: "示例文章 · 非真实博客导入",
+  close: "关闭",
+  statusOpen: "状态",
+  you: "你",
+  worldLabel: "可拖动缩放的粒子世界；亦可用方向键漫游，通过附近空间按钮进入房子",
+  themeFollowSystem: "明暗跟随系统",
+  houseNames: ["你的原点", "雨后的书屋", "远山来信", "风停的地方", "一页之间", "晚灯", "白露", "溪边札记"],
 };
 
 const en = {
@@ -78,6 +107,35 @@ const en = {
   evHost: "→ :{port} · {kind}",
   evFixtureSuffix: " · fixture",
   roomEmpty: "No articles on the shelf yet",
+  place: "Open terrain",
+  sub: "Glide above the surface. Find a place to stay.",
+  hint: "Drag to explore · Scroll to approach · Select a house",
+  inHint: "Select a book to read · Return above to explore",
+  demo: "Sample houses · Real visitors",
+  enter: "Descend",
+  cancel: "Dismiss",
+  back: "↑ Return above",
+  home: "Origin",
+  help: "Guide",
+  helpTitle: "From the sky to a book",
+  helpCopy: "Drag to move across a vast curved surface. Scroll or pinch to zoom. Select a house and choose Descend: the camera approaches continuously as its roof fades. Arrow keys pan, + / − zoom and Esc returns.",
+  limits: "The world is generated from coordinates; houses are samples. Visitors are real connections. No visible planet edge; zoom has numeric bounds. The same place string maps to the same location.",
+  address: "A word, a place to go",
+  addressLabel: "Place string",
+  houseDesc: "A sample space with three short articles.",
+  insideDesc: "The roof is open. Each book holds an article.",
+  go: "Go",
+  zoomIn: "Zoom in",
+  zoomOut: "Zoom out",
+  zoomLimit: "Detail limit reached. You can still roam in any direction.",
+  near: "Nearby places",
+  articleSource: "Sample article · Not imported from a blog",
+  close: "Close",
+  statusOpen: "Runtime",
+  you: "you",
+  worldLabel: "Draggable, zoomable particle world; arrow keys roam, nearby places enter houses",
+  themeFollowSystem: "Follow system theme",
+  houseNames: ["Your origin", "After the rain", "Letters from afar", "Still air", "Between pages", "Evening light", "Dew", "River notes"],
 };
 
 const dicts = { "zh-CN": zh, en };
@@ -88,6 +146,11 @@ for (const k of Object.keys(zh)) {
 }
 for (const k of Object.keys(en)) {
   if (!(k in zh)) console.warn(`i18n 字典缺 zh key: ${k}`);
+}
+
+// tArr 取数组型文案（如房屋名列表）；缺 key 回退中文，再退空数组。
+export function tArr(lang, key) {
+  return (dicts[lang] && dicts[lang][key]) ?? zh[key] ?? [];
 }
 
 // t 按当前语言取文案并做 {占位} 插值；缺 key 回退中文，再没有就回退 key 本身。
