@@ -39,7 +39,9 @@ type Session struct {
 	Y    float64 `json:"y"`
 	Join int64   `json:"join"` // unix 毫秒
 
-	send chan []byte // 有界发送缓冲：消费不动就丢，绝不让队列无限增长
+	send chan []byte // 有界发送缓冲：满了说明是慢消费者，由 Broadcast 断开整条连接
+
+	conn *websocket.Conn // 当前连接；写失败/心跳超时/慢消费都通过关闭它来终结会话
 
 	// 脉冲限频令牌桶（只允许 readPump 在 hub.mu 下访问）：
 	// 平均 2 次/秒，上限 4（突发），防止客户端无限扩散事件。
@@ -69,8 +71,9 @@ func (h *Hub) Count() int {
 	return len(h.sessions)
 }
 
-// Broadcast 把一条消息发给所有连接。缓冲满就丢这条——
-// 文档第 23 节：绝不能无限增长 send queue。
+// Broadcast 把一条消息发给所有连接。
+// 发送缓冲满 = 慢消费者：不再静默丢消息（漏掉 join/leave 会让对方状态永久失真），
+// 而是关闭该连接，让它重连后通过 welcome 快照重建一致状态。
 func (h *Hub) Broadcast(v any) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -82,7 +85,9 @@ func (h *Hub) Broadcast(v any) {
 		select {
 		case s.send <- data:
 		default:
-			h.dropped.Add(1) // 原子加：多个广播 goroutine 会同时走到这里
+			h.dropped.Add(1)
+			// 异步关闭：Broadcast 持读锁，不在锁内做阻塞 IO
+			go func(c *websocket.Conn) { _ = c.Close() }(s.conn)
 		}
 	}
 }
@@ -208,6 +213,9 @@ func (s *Session) allowPulse(now time.Time) bool {
 
 var upgrader = websocket.Upgrader{} // 默认校验 Origin==Host
 
+// startedAt 是进程启动时刻，供 /healthz 报告 uptime。
+var startedAt = time.Now()
+
 // main 装配 Hub、周期指标广播和 HTTP 路由，监听本地回环地址。
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
@@ -229,6 +237,12 @@ func main() {
 	}()
 
 	http.Handle("/ws", wsHandler{hub})
+	// 健康检查：供部署脚本和巡检确认进程活着、在收连接
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		fmt.Fprintf(w, `{"status":"ok","conns":%d,"uptime_s":%d}`,
+			hub.Count(), int64(time.Since(startedAt).Seconds()))
+	})
 	// 静态文件禁缓存：开发期改完刷新就生效，不被旧 app.js 拖住
 	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
@@ -251,10 +265,18 @@ func sub(f embed.FS) fs.FS {
 
 type wsHandler struct{ hub *Hub }
 
+// maxConns 是全站同时在线的连接预算。超额拒绝升级——宁可拒连，不无界建立。
+const maxConns = 128
+
 // ServeHTTP 走完一条 WebSocket 连接的完整生命周期：
-// 升级 → 登记 Session → welcome（你是谁+谁在线）→ 广播 join →
-// 读写双泵 → 断开后注销并广播 leave。
+// 预算检查 → 升级 → 登记 → welcome → 广播 join → 读写泵+心跳 → 统一注销。
+// 注销只有一个 owner（本函数的 defer）：任何失败路径（读/写/心跳/被踢）
+// 最终都回到这里，"删表 → 关 send → 关连接 → 广播 leave"只发生一次。
 func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.hub.Count() >= maxConns {
+		http.Error(w, "服务器繁忙", http.StatusServiceUnavailable)
+		return
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -265,6 +287,7 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Y:    0.25 + 0.5*float64(randByte())/255,
 		Join: time.Now().UnixMilli(),
 		send: make(chan []byte, 64),
+		conn: conn,
 		// 脉冲令牌桶：初始满桶（4），允许新访客一次小爆发
 		pulseTokens: 4,
 		pulseLast:   time.Now(),
@@ -274,30 +297,60 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.hub.sessions[s] = true
 	h.hub.mu.Unlock()
 
-	// 先告诉新连接“你是谁、都有谁在线”，再向大家广播你的到来
-	_ = conn.WriteJSON(welcomeMsg{Type: "welcome", You: s.ID, Sessions: h.hub.Snapshot()})
+	defer func() {
+		h.hub.mu.Lock()
+		delete(h.hub.sessions, s)
+		h.hub.mu.Unlock()
+		close(s.send)
+		_ = conn.Close()
+		h.hub.Broadcast(leaveMsg{Type: "leave", ID: s.ID})
+		log.Printf("leave %s（在线 %d）", s.ID, h.hub.Count())
+	}()
+
+	// 先告诉新连接“你是谁、都有谁在线”，再向大家广播你的到来。
+	// welcome 写失败不能继续：直接返回，defer 完成清理。
+	if err := conn.WriteJSON(welcomeMsg{Type: "welcome", You: s.ID, Sessions: h.hub.Snapshot()}); err != nil {
+		return
+	}
 	h.hub.Broadcast(joinMsg{Type: "join", Session: *s})
 	log.Printf("join  %s（在线 %d）", s.ID, h.hub.Count())
 
+	// 心跳：每 15s 发 ping；45s 没收到 pong，读超时自动断开（见 readPump）。
+	stopPing := make(chan struct{})
+	defer close(stopPing)
+	go pingLoop(conn, stopPing)
+
 	go writePump(conn, s)
 	readPump(conn, s, h.hub) // 阻塞直到断开
+}
 
-	h.hub.mu.Lock()
-	delete(h.hub.sessions, s)
-	h.hub.mu.Unlock()
-	close(s.send)
-	_ = conn.Close()
-
-	h.hub.Broadcast(leaveMsg{Type: "leave", ID: s.ID})
-	log.Printf("leave %s（在线 %d）", s.ID, h.hub.Count())
+// pingLoop 每 15 秒向这条连接发一个 WebSocket ping。
+// WriteControl 与 writePump 的普通写并发安全（gorilla 契约允许）。
+// 对端是浏览器时会自动回 pong；不回的僵尸连接由读超时负责清理。
+func pingLoop(conn *websocket.Conn, stop <-chan struct{}) {
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			_ = conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
+		case <-stop:
+			return
+		}
+	}
 }
 
 // readPump 持续读这条连接的消息，直到断开（ReadMessage 报错即返回）。
-// 单条消息上限 4 KiB；类型白名单分发，畸形/未知消息只跳过（continue），
-// 不杀连接——一条坏消息不该拖死整条线。
-// cursor → 更新坐标并广播增量；pulse → 校验 + 限频后广播脉冲事件。
+// 单条消息上限 4 KiB；45 秒读超时，收到 pong 续约（配合 pingLoop 清僵尸连接）。
+// 类型白名单分发，畸形/未知消息只跳过（continue），不杀连接——
+// 一条坏消息不该拖死整条线。
 func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 	conn.SetReadLimit(4096) // 协议消息都很小，超限的连接会被 gorilla 断开
+	_ = conn.SetReadDeadline(time.Now().Add(45 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		// 收到 pong 说明对端活着：续约读超时
+		return conn.SetReadDeadline(time.Now().Add(45 * time.Second))
+	})
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -362,11 +415,13 @@ func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 }
 
 // writePump 把这个 Session 发送缓冲里的消息逐条写进 WebSocket。
-// 缓冲被 close（连接断开）时 for-range 结束，goroutine 退出。
+// 缓冲被 close（统一注销）时 for-range 结束，goroutine 退出。
+// 写失败时主动关闭连接：唤醒阻塞中的 readPump，让整个生命周期走向统一注销点。
 func writePump(conn *websocket.Conn, s *Session) {
 	for data := range s.send {
 		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			_ = conn.Close() // 写失败联动关闭：不让 reader 永远傻等
 			return
 		}
 	}

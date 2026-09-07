@@ -26,11 +26,13 @@ const state = {
 // connect 建立 WebSocket 并挂上断线重连（指数退避，上限 5 秒）。
 // ws 是模块级变量：其他代码（比如光标上报）也要用它发送。
 // 协议跟随页面：https 页面必须用 wss，否则浏览器按混合内容拦截。
+// 重连 generation 隔离：sock 捕获本次连接，旧连接的 onclose 不碰新连接。
 let retry = 0;
 let ws = null;
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  const sock = new WebSocket(`${proto}://${location.host}/ws`);
+  ws = sock;
   const dot = document.getElementById("ws-dot");
   const label = document.getElementById("ws-label");
 
@@ -49,6 +51,7 @@ function connect() {
     onMessage(e);
   };
   ws.onclose = () => {
+    if (ws !== sock) return; // 新连接已在跑，旧连接的善后不重复安排重连
     dot.classList.remove("on");
     label.textContent = "RECONNECTING…";
     setTimeout(connect, Math.min(5000, 300 * 2 ** retry++));
