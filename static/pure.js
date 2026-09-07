@@ -53,3 +53,16 @@ export function markSeen(seen, id, max = 256) {
   }
   return true;
 }
+
+// RADAR_PORTS 是 Host Radar 雷达环上预置的端口。
+export const RADAR_PORTS = [22, 80, 443, 3000, 3306, 5432, 8080];
+
+// portPosition 计算端口在雷达环上的归一化位置（绕中心一圈，12 点方向起顺时针）。
+// 未知端口放到环上最后一个槽位：不丢事件，但也不假装认识它。
+export function portPosition(port) {
+  const i = RADAR_PORTS.indexOf(port);
+  const idx = i === -1 ? RADAR_PORTS.length : i;
+  const total = RADAR_PORTS.length + 1;
+  const a = -Math.PI / 2 + (idx / total) * Math.PI * 2;
+  return { x: 0.5 + Math.cos(a) * 0.3, y: 0.5 + Math.sin(a) * 0.3 };
+}

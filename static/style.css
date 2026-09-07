@@ -100,3 +100,8 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: none; 
   .tag { display: none; }
   .bottom { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Host Radar sensor 状态徽标：在线橙 / 离线灰 */
+.sensor-badge { font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: 1.5px;
+  padding: 3px 10px; border-radius: 99px; border: 1px solid var(--faint); color: var(--faint); }
+.sensor-badge.on { color: var(--orange, #ffb15f); border-color: var(--orange, #ffb15f); }

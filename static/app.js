@@ -10,7 +10,7 @@
  * 这里只保留状态、副作用（DOM/网络/计时器）和绘制。
  */
 
-import { normalizePointer, appendPositionSample, canSend, markSeen } from "./pure.js";
+import { normalizePointer, appendPositionSample, canSend, markSeen, portPosition, RADAR_PORTS } from "./pure.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -109,6 +109,21 @@ function onMessage(e) {
       if (pulses.length > 64) pulses.shift(); // 超界丢最旧
       break;
     }
+    case "host_event": {
+      // 主机事件：去重后生成一条来袭弧线。fixture（开发注入）也画，
+      // 但画成虚线，永不伪装成 live。
+      if (!markSeen(seenHost, e.eventId)) break;
+      const angle = Math.random() * Math.PI * 2; // 来源出现在画布边缘的随机方向
+      hostArcs.push({
+        srcX: 0.5 + Math.cos(angle) * 0.48,
+        srcY: 0.5 + Math.sin(angle) * 0.44,
+        port: e.destinationPort,
+        bornAt: performance.now(),
+        mode: e.mode,
+      });
+      if (hostArcs.length > 32) hostArcs.shift(); // 超界丢最旧
+      break;
+    }
     case "metrics":
       state.metrics = e;
       document.getElementById("m-conns").textContent = e.conns;
@@ -117,6 +132,10 @@ function onMessage(e) {
       document.getElementById("m-sys").textContent =
         e.sys_mb.toFixed(1) + " MB";
       document.getElementById("m-dropped").textContent = e.dropped;
+      // sensor 在线状态徽标：无事件不等于离线，10 秒无心跳才算离线
+      const badge = document.getElementById("sensor-badge");
+      badge.textContent = e.sensor_online ? "HOST LIVE" : "SENSOR OFFLINE";
+      badge.className = "sensor-badge " + (e.sensor_online ? "on" : "off");
       break;
   }
 }
@@ -145,6 +164,8 @@ function draw() {
 
   const now = performance.now();
   const breathe = (phase) => 1 + 0.18 * Math.sin(now / 600 + phase); // 呼吸感
+
+  drawRadar(now);
 
   for (const [id, s] of state.sessions) {
     const isYou = id === state.you;
@@ -205,6 +226,76 @@ function draw() {
   }
 
   requestAnimationFrame(draw);
+}
+
+// ---------- Host Radar ----------
+
+// drawRadar 每帧绘制主机雷达层：中央服务器标记、端口环、来袭弧线。
+// 来袭弧线生命周期 1.8s：边缘出现 → 光点飞向端口 → 淡出。
+// fixture 事件画虚线，和 live 视觉分离（诚实标注模拟数据）。
+function drawRadar(now) {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const cx = w * 0.5, cy = h * 0.52;
+
+  // 中央服务器标记
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+  ctx.fillStyle = "#d9ff68";
+  ctx.fill();
+  ctx.globalAlpha = 0.15;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 16, 0, Math.PI * 2);
+  ctx.strokeStyle = "#d9ff68";
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#829059";
+  ctx.font = '9px ui-monospace, monospace';
+  ctx.textAlign = "center";
+  ctx.fillText("SERVER", cx, cy + 28);
+
+  // 端口环
+  for (const port of RADAR_PORTS) {
+    const p = portPosition(port);
+    const x = p.x * w, y = p.y * h;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "#667587";
+    ctx.fill();
+    ctx.fillStyle = "#677487";
+    ctx.fillText(":" + port, x + 8, y + 3);
+  }
+
+  // 来袭弧线
+  for (let i = hostArcs.length - 1; i >= 0; i--) {
+    const a = hostArcs[i];
+    const t = (now - a.bornAt) / 1800;
+    if (t >= 1) { hostArcs.splice(i, 1); continue; }
+    const target = portPosition(a.port);
+    const sx = a.srcX * w, sy = a.srcY * h;
+    const tx = target.x * w, ty = target.y * h;
+    const color = "#ffb15f";
+
+    // 尾迹线（从源到当前光点）
+    const q = Math.min(t * 1.6, 1); // 光点先飞到位
+    const px = sx + (tx - sx) * q, py = sy + (ty - sy) * q;
+    ctx.globalAlpha = (1 - t) * 0.5;
+    ctx.strokeStyle = color;
+    ctx.setLineDash(a.mode === "fixture" ? [4, 4] : []); // fixture 虚线
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(px, py);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 飞行光点
+    ctx.globalAlpha = 1 - t * 0.3;
+    ctx.beginPath();
+    ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ---------- 插值缓冲（方案 C） ----------
@@ -302,6 +393,11 @@ const pending = { x: 0.5, y: 0.5, dirty: false };
 const pulses = [];
 const seenPulses = new Set();
 let pulseSeq = 0;
+
+// hostArcs 是 Host Radar 活动中的来袭弧线：{srcX, srcY, port, bornAt, mode}，最多 32 条。
+// seenHost 是 host eventId 去重缓存；sensorOnline 由 metrics 的 sensor_online 驱动。
+const hostArcs = [];
+const seenHost = new Set();
 
 // 鼠标移动时只做三件事：读 DOM（rect/坐标）→ 纯函数换算 → 记账 + 乐观更新自己的点。
 // 不在这里发消息（浏览器 mousemove 能到几百 Hz，会把服务器淹了）。
