@@ -550,6 +550,8 @@ $("locale").addEventListener("click", () => {
 });
 $("help").addEventListener("click", () => $("help-dialog").showModal());
 $("status-btn").addEventListener("click", () => { $("drawer").hidden = !$("drawer").hidden; });
+// 抽屉退出按钮与 Esc 都收起运行状态（不收起世界本身）
+$("drawer-close").addEventListener("click", () => { $("drawer").hidden = true; });
 
 // 缩放/归处控件
 $("plus").addEventListener("click", () => { if (!world.zoomAt(1.35)) showNotice(t(getPrefs().lang, "zoomLimit")); });
@@ -606,6 +608,10 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.key === "+" || e.key === "=") world.zoomAt(1.25);
   if (e.key === "-") world.zoomAt(0.8);
+  if (e.key === "Escape" && !$("drawer").hidden) {
+    $("drawer").hidden = true;
+    return;
+  }
   if (e.key === "Escape") {
     if ($("back").hidden === false) {
       world.returnAbove();
