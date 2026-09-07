@@ -3,64 +3,123 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PULSE — See the server breathe</title>
+<title>PULSE · 我的书房</title>
+<script>
+// 首屏防闪：绘制前读本地偏好设置 data-theme（与 preferences.js 同规则的最小副本）。
+(function () {
+  try {
+    var t = localStorage.getItem("pulse.theme") || "system";
+    var dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    var l = localStorage.getItem("pulse.lang") || "zh-CN";
+    document.documentElement.lang = l;
+  } catch (e) { /* 存储不可用时跟随默认 */ }
+})();
+</script>
+<link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="app">
 
-  <header>
-    <div class="brand">PUL<span>S</span>E</div>
-    <div class="tag">SEE THE SERVER BREATHE</div>
-    <div class="live">
-      <span id="sensor-badge" class="sensor-badge off">SENSOR OFFLINE</span>
-      <span id="ws-dot" class="dot"></span><span id="ws-label">CONNECTING…</span>
-    </div>
-  </header>
+<header class="topbar">
+  <div class="brand">PUL<span>S</span>E</div>
+  <div class="space-name" id="space-name">我的书房</div>
+  <div class="controls">
+    <button id="btn-theme" class="ctrl" title="主题">主题</button>
+    <button id="btn-lang" class="ctrl" title="语言">EN</button>
+    <button id="btn-status" class="ctrl" title="运行状态">状态</button>
+    <span class="status-chip" title="连接状态">
+      <span id="ws-dot" class="dot"></span><span id="chip-conns">–</span>
+    </span>
+  </div>
+</header>
 
-  <aside class="left">
-    <div class="section-title">VIEW</div>
-    <div class="mode active" data-mode="system">SYSTEM<small>presence + host radar</small></div>
-    <div class="mode" data-mode="presence">PRESENCE<small>live site sessions</small></div>
-    <div class="mode" data-mode="host">HOST RADAR<small>inbound port events</small></div>
+<main class="stage">
+  <!-- 点线房间：轴测投影。结构线/物件线/辅助线三档，明暗靠 tokens.css -->
+  <svg id="room" viewBox="0 0 1000 640" preserveAspectRatio="xMidYMid meet" aria-label="书房空间">
+    <!-- 地面 -->
+    <polygon class="room-plane" points="500,570 160,390 500,210 840,390" />
+    <polygon class="ls" points="500,570 160,390 500,210 840,390" />
+    <!-- 左墙 -->
+    <polyline class="ls" points="160,390 160,210 500,30 500,210" />
+    <!-- 右墙 -->
+    <polyline class="ls" points="500,210 500,30 840,210 840,390" />
+    <!-- 墙角线 -->
+    <line class="ls" x1="500" y1="210" x2="500" y2="30" />
 
-    <div class="divider"></div>
-    <div class="section-title">LEGEND</div>
-    <div class="legend"><i class="l-you"></i>你（光环）</div>
-    <div class="legend"><i class="l-human"></i>其他真实连接</div>
-    <div class="legend"><i class="l-pulse"></i>点击脉冲</div>
-    <div class="legend"><i class="l-host"></i>主机事件（实线=live）</div>
-    <div class="legend"><i class="l-fixture"></i>fixture（虚线=演示注入）</div>
+    <!-- 窗户（右墙，平面跟随墙方向） -->
+    <g class="lo">
+      <polygon points="620,280 745,350 745,235 620,165" />
+      <line x1="682" y1="222" x2="682" y2="292" />
+      <line x1="620" y1="222" x2="745" y2="292" />
+    </g>
 
-    <div class="divider"></div>
-    <div class="section-title">PORTS · LIVE</div>
-    <div class="ports" id="ports"></div>
-  </aside>
+    <!-- 书架（左墙落地） -->
+    <g class="lo">
+      <polyline points="270,415 390,350 390,200 270,265 270,415" />
+      <line x1="270" y1="415" x2="270" y2="265" />
+      <!-- 隔板 -->
+      <line x1="270" y1="365" x2="390" y2="300" />
+      <line x1="270" y1="315" x2="390" y2="250" />
+    </g>
+    <!-- 书（少量真实物件；示例文章，点击交互在第三轮接入） -->
+    <g class="book">
+      <line x1="288" y1="357" x2="288" y2="329" />
+      <line x1="306" y1="347" x2="306" y2="319" />
+      <line x1="324" y1="337" x2="324" y2="311" />
+    </g>
+    <g class="book">
+      <line x1="294" y1="307" x2="294" y2="281" />
+      <line x1="312" y1="297" x2="312" y2="273" />
+    </g>
 
-  <main class="stage">
-    <canvas id="c"></canvas>
-    <div class="overlay">
-      <div class="kicker" id="kicker">SYSTEM · REALTIME</div>
-      <div class="headline">This is happening <em>right now.</em></div>
-      <div class="sub" id="you-label">…</div>
-    </div>
-    <div class="note">所有数据来自真实连接与真实主机事件 · 模拟内容只会以虚线出现</div>
-  </main>
+    <!-- 桌子（地面右中） -->
+    <g class="lo">
+      <polygon points="560,430 730,360 800,395 630,465" />
+      <line x1="560" y1="430" x2="560" y2="478" />
+      <line x1="630" y1="465" x2="630" y2="513" />
+      <line x1="800" y1="395" x2="800" y2="443" />
+    </g>
+    <!-- 桌面上的书 -->
+    <g class="book">
+      <line x1="640" y1="408" x2="640" y2="384" />
+      <line x1="656" y1="401" x2="656" y2="377" />
+    </g>
+  </svg>
 
-  <aside class="right">
-    <h3>EVENT STREAM</h3>
-    <div class="feed" id="feed"></div>
-  </aside>
+  <!-- 实时层：访客点/脉冲/雷达弧线（Canvas 叠在 SVG 房间上，共享尺寸） -->
+  <canvas id="c"></canvas>
 
-  <footer class="bottom">
-    <div class="metric"><div class="label">ONLINE</div><div class="value" id="m-conns">0</div><div class="meta">真实长连接</div></div>
-    <div class="metric"><div class="label">HOST EVENTS</div><div class="value" id="m-hostrate">0/s</div><div class="meta">最近 10s 实测</div></div>
-    <div class="metric"><div class="label">GO HEAP</div><div class="value" id="m-heap">—</div><div class="meta">进程真实内存</div></div>
-    <div class="metric"><div class="label">GO SYS</div><div class="value" id="m-sys">—</div><div class="meta">向 OS 申请总量</div></div>
-    <div class="metric"><div class="label">DROPPED</div><div class="value" id="m-dropped">0</div><div class="meta">慢消费丢弃</div></div>
-  </footer>
+  <div class="overlay-sub" id="you-label">…</div>
+</main>
 
-</div>
+<!-- 运行状态抽屉：原工作台内容，默认收起 -->
+<aside id="drawer" class="drawer" hidden>
+  <h3 id="kicker">RUNTIME</h3>
+  <div class="drawer-row"><span id="ws-label">CONNECTING…</span>
+    <span id="sensor-badge" class="sensor-badge off">SENSOR OFFLINE</span></div>
+
+  <div class="section-title" data-i18n="view">VIEW</div>
+  <div class="mode active" data-mode="system">SYSTEM</div>
+  <div class="mode" data-mode="presence">PRESENCE</div>
+  <div class="mode" data-mode="host">HOST RADAR</div>
+
+  <div class="section-title" id="feed-title">EVENT STREAM</div>
+  <div class="feed" id="feed"></div>
+
+  <div class="section-title" id="ports-title">PORTS · LIVE</div>
+  <div class="ports" id="ports"></div>
+
+  <div class="metrics">
+    <div class="metric"><div class="label">ONLINE</div><div class="value" id="m-conns">0</div></div>
+    <div class="metric"><div class="label">HOST/s</div><div class="value" id="m-hostrate">0/s</div></div>
+    <div class="metric"><div class="label">HEAP</div><div class="value" id="m-heap">—</div></div>
+    <div class="metric"><div class="label">SYS</div><div class="value" id="m-sys">—</div></div>
+    <div class="metric"><div class="label">DROPPED</div><div class="value" id="m-dropped">0</div></div>
+  </div>
+</aside>
+
 <script type="module" src="/app.js"></script>
 </body>
 </html>

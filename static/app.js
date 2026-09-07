@@ -19,6 +19,14 @@ import {
   ratePerSecond,
   RADAR_PORTS,
 } from "./pure.js";
+import {
+  initPreferences,
+  setTheme,
+  setLang,
+  getPrefs,
+  onPreferenceChange,
+} from "./preferences.js";
+import { t } from "./i18n.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -28,6 +36,70 @@ const state = {
   sessions: new Map(), // id -> {id, x, y, bornAt, deadAt}
   metrics: null,
 };
+
+// ---------- 偏好（主题/语言）与界面控制 ----------
+
+// palette 是 Canvas 用的颜色缓存：换主题时从 CSS 变量读一次，
+// 不逐帧 getComputedStyle（docs/08 §6）。
+let palette = {};
+function refreshPalette() {
+  const cs = getComputedStyle(document.documentElement);
+  const get = (k) => cs.getPropertyValue(k).trim();
+  palette = {
+    cursorLocal: get("--cursor-local"),
+    cursorRemote: get("--cursor-remote"),
+    pulseRing: get("--pulse-ring"),
+    radarLive: get("--radar-live"),
+    lineGuide: get("--line-guide"),
+    textSecondary: get("--text-secondary"),
+  };
+}
+
+initPreferences();
+refreshPalette();
+
+const themeBtn = document.getElementById("btn-theme");
+const langBtn = document.getElementById("btn-lang");
+const statusBtn = document.getElementById("btn-status");
+const drawer = document.getElementById("drawer");
+
+// 主题按钮循环：跟随系统 → 明亮 → 深色 → 跟随系统
+themeBtn.onclick = () => {
+  const cur = getPrefs().theme;
+  setTheme(cur === "system" ? "light" : cur === "light" ? "dark" : "system");
+};
+
+// 语言按钮：中文 ⇄ English，按钮文字显示可切换到的另一种语言
+langBtn.onclick = () => {
+  setLang(getPrefs().lang === "zh-CN" ? "en" : "zh-CN");
+};
+
+// 运行状态抽屉开关（只显隐，不断连、不建计时器）
+statusBtn.onclick = () => {
+  drawer.hidden = !drawer.hidden;
+};
+
+// refreshUIText 按当前语言重绘所有界面文案（含已显示的事件记录）。
+function refreshUIText() {
+  const lang = getPrefs().lang;
+  const themeKey = { system: "themeSystem", light: "themeLight", dark: "themeDark" }[getPrefs().theme];
+  document.getElementById("space-name").textContent = t(lang, "spaceName");
+  themeBtn.textContent = t(lang, "theme") + " · " + t(lang, themeKey);
+  langBtn.textContent = lang === "zh-CN" ? "EN" : "中文";
+  statusBtn.textContent = t(lang, "statusOpen");
+  document.getElementById("feed-title").textContent = t(lang, "feedTitle");
+  document.getElementById("ports-title").textContent = t(lang, "portsLive");
+  if (state.you) {
+    document.getElementById("you-label").textContent = t(lang, "youHint", { id: state.you });
+  }
+  renderFeed();
+}
+
+// 偏好变化：刷新调色板 + 全部文案；不重建连接、不新建计时器
+onPreferenceChange(() => {
+  refreshPalette();
+  refreshUIText();
+});
 
 // ---------- WebSocket ----------
 
@@ -49,26 +121,58 @@ for (const el of document.querySelectorAll(".mode")) {
 
 // ---------- 事件流 ----------
 
-// feedEvent 把一条真实事件加到事件流顶部（最多 20 条）。
-// parts 是 [css类, 文本] 数组；全部用 textContent 构造，服务器数据绝不进 innerHTML。
-function feedEvent(parts) {
+// feedRecords 是结构化事件记录（有界 20 条，最新在前）。
+// 存数据不存拼好的文字：切换语言时整条流按新语言重绘。
+const feedRecords = [];
+
+// recordEvent 记录一条真实事件并重绘事件流。
+// kind: join/leave/pulse/host；data 保留原始字段，格式化发生在渲染时。
+function recordEvent(kind, data) {
+  feedRecords.unshift({ kind, data, time: Date.now() });
+  if (feedRecords.length > 20) feedRecords.pop();
+  renderFeed();
+}
+
+// renderFeed 按当前语言把记录渲染成 DOM；全部 textContent，服务器数据不进 innerHTML。
+function renderFeed() {
   const feed = document.getElementById("feed");
-  const el = document.createElement("div");
-  el.className = "event";
-  const time = document.createElement("div");
-  time.className = "time";
-  time.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-  const msg = document.createElement("div");
-  msg.className = "msg";
+  const lang = getPrefs().lang;
+  feed.textContent = "";
+  for (const r of feedRecords) {
+    const el = document.createElement("div");
+    el.className = "event";
+    const time = document.createElement("div");
+    time.className = "time";
+    time.textContent = new Date(r.time).toLocaleTimeString(lang, { hour12: false });
+    const msg = document.createElement("div");
+    msg.className = "msg";
+    const d = r.data;
+    // kind 决定颜色类与文案；身份/端口等原始值不翻译
+    if (r.kind === "join") {
+      appendParts(msg, ["k-join", "join  "], ["b", d.id], ["", " " + t(lang, "evJoin")]);
+    } else if (r.kind === "leave") {
+      appendParts(msg, ["k-leave", "leave "], ["b", d.id], ["", " " + t(lang, "evLeave")]);
+    } else if (r.kind === "pulse") {
+      appendParts(msg, ["k-pulse", "pulse "], ["b", d.id],
+        ["", " " + t(lang, "evPulse", { x: d.x.toFixed(2), y: d.y.toFixed(2) })]);
+    } else if (r.kind === "host") {
+      appendParts(msg, ["k-host", "host  "], ["b", d.sourceId],
+        ["", " " + t(lang, "evHost", { port: d.port, kind: d.kind }) +
+          (d.mode === "fixture" ? t(lang, "evFixtureSuffix") : "")]);
+    }
+    el.append(time, msg);
+    feed.appendChild(el);
+  }
+}
+
+// appendParts 把 [css类, 文本] 片段安全地拼进消息节点（只走 textContent）。
+function appendParts(msg, ...parts) {
   for (const [cls, text] of parts) {
     const span = document.createElement(cls === "b" ? "b" : "span");
     if (cls !== "b" && cls) span.className = cls;
     span.textContent = text;
     msg.appendChild(span);
   }
-  el.append(time, msg);
-  feed.prepend(el);
-  while (feed.children.length > 20) feed.lastChild.remove();
 }
 
 // ---------- 端口速率（真实事件统计） ----------
@@ -131,7 +235,7 @@ function connect() {
   ws.onopen = () => {
     retry = 0;
     dot.classList.add("on");
-    label.textContent = "CONNECTED";
+    label.textContent = t(getPrefs().lang, "connected");
   };
   ws.onmessage = (m) => {
     let e;
@@ -145,7 +249,7 @@ function connect() {
   ws.onclose = () => {
     if (ws !== sock) return; // 新连接已在跑，旧连接的善后不重复安排重连
     dot.classList.remove("on");
-    label.textContent = "RECONNECTING…";
+    label.textContent = t(getPrefs().lang, "reconnecting");
     setTimeout(connect, Math.min(5000, 300 * 2 ** retry++));
   };
 }
@@ -161,8 +265,7 @@ function onMessage(e) {
       for (const s of e.sessions) {
         state.sessions.set(s.id, { ...s, bornAt: performance.now() });
       }
-      document.getElementById("you-label").textContent =
-        `你是 ${e.you} · 移动鼠标——在线的人都会看到你`;
+      document.getElementById("you-label").textContent = t(getPrefs().lang, "youHint", { id: e.you });
       // 重连后旧连接的 pending 作废：清掉发送标记，等新的鼠标输入再发
       pending.dirty = false;
       break;
@@ -171,12 +274,12 @@ function onMessage(e) {
         ...e.session,
         bornAt: performance.now(),
       });
-      feedEvent([["k-join", "join  "], ["b", e.session.id], ["", " connected"]]);
+      recordEvent("join", { id: e.session.id });
       break;
     case "leave": {
       const s = state.sessions.get(e.id);
       if (s) s.deadAt = performance.now(); // 标记死亡，动画里消散
-      feedEvent([["k-leave", "leave "], ["b", e.id], ["", " disconnected"]]);
+      recordEvent("leave", { id: e.id });
       break;
     }
     case "cursor": {
@@ -201,11 +304,7 @@ function onMessage(e) {
       if (!markSeen(seenPulses, e.eventId)) break;
       pulses.push({ x: e.x, y: e.y, bornAt: performance.now(), mine: e.id === state.you });
       if (pulses.length > 64) pulses.shift(); // 超界丢最旧
-      feedEvent([
-        ["k-pulse", "pulse "],
-        ["b", e.id],
-        ["", ` 点击 (${e.x.toFixed(2)}, ${e.y.toFixed(2)})`],
-      ]);
+      recordEvent("pulse", { id: e.id, x: e.x, y: e.y });
       break;
     }
     case "host_event": {
@@ -222,16 +321,13 @@ function onMessage(e) {
       });
       if (hostArcs.length > 32) hostArcs.shift(); // 超界丢最旧
       recordHostEvent(e.destinationPort, performance.now());
-      feedEvent([
-        ["k-host", "host  "],
-        ["b", e.sourceId],
-        ["", ` → :${e.destinationPort} · ${e.kind}${e.mode === "fixture" ? " · fixture" : ""}`],
-      ]);
+      recordEvent("host", { sourceId: e.sourceId, port: e.destinationPort, kind: e.kind, mode: e.mode });
       break;
     }
     case "metrics":
       state.metrics = e;
       document.getElementById("m-conns").textContent = e.conns;
+      document.getElementById("chip-conns").textContent = e.conns;
       document.getElementById("m-heap").textContent =
         e.heap_mb.toFixed(1) + " MB";
       document.getElementById("m-sys").textContent =
@@ -242,7 +338,7 @@ function onMessage(e) {
       document.getElementById("m-hostrate").textContent =
         ratePerSecond(hostTimes, performance.now(), 10_000).toFixed(1) + "/s";
       const badge = document.getElementById("sensor-badge");
-      badge.textContent = e.sensor_online ? "HOST LIVE" : "SENSOR OFFLINE";
+      badge.textContent = e.sensor_online ? t(getPrefs().lang, "sensorLive") : t(getPrefs().lang, "sensorOffline");
       badge.className = "sensor-badge " + (e.sensor_online ? "on" : "off");
       break;
   }
@@ -300,7 +396,7 @@ function draw() {
     }
 
     const r = (isYou ? 6 : 4) * breathe(x * 0.01) * scale;
-    const color = isYou ? "#d9ff68" : "#79e6ff";
+    const color = isYou ? palette.cursorLocal : palette.cursorRemote;
 
     // 绘制：p 是选中的归一化位置，乘画布尺寸换算成像素后再画
     ctx.globalAlpha = alpha;
@@ -332,7 +428,7 @@ function draw() {
     ctx.globalAlpha = (1 - t) * 0.8;
     ctx.beginPath();
     ctx.arc(pulses[i].x * w, pulses[i].y * h, 6 + t * 46, 0, Math.PI * 2);
-    ctx.strokeStyle = pulses[i].mine ? "#d9ff68" : "#79e6ff";
+    ctx.strokeStyle = pulses[i].mine ? palette.pulseRing : palette.cursorRemote;
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.globalAlpha = 1;
@@ -354,15 +450,15 @@ function drawRadar(now) {
   ctx.globalAlpha = 0.9;
   ctx.beginPath();
   ctx.arc(cx, cy, 7, 0, Math.PI * 2);
-  ctx.fillStyle = "#d9ff68";
+  ctx.fillStyle = palette.cursorLocal;
   ctx.fill();
   ctx.globalAlpha = 0.15;
   ctx.beginPath();
   ctx.arc(cx, cy, 16, 0, Math.PI * 2);
-  ctx.strokeStyle = "#d9ff68";
+  ctx.strokeStyle = palette.cursorLocal;
   ctx.stroke();
   ctx.globalAlpha = 1;
-  ctx.fillStyle = "#829059";
+  ctx.fillStyle = palette.textSecondary;
   ctx.font = '9px ui-monospace, monospace';
   ctx.textAlign = "center";
   ctx.fillText("SERVER", cx, cy + 28);
@@ -373,9 +469,9 @@ function drawRadar(now) {
     const x = p.x * w, y = p.y * h;
     ctx.beginPath();
     ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = "#667587";
+    ctx.fillStyle = palette.lineGuide;
     ctx.fill();
-    ctx.fillStyle = "#677487";
+    ctx.fillStyle = palette.lineGuide;
     ctx.fillText(":" + port, x + 8, y + 3);
   }
 
@@ -387,7 +483,7 @@ function drawRadar(now) {
     const target = portPosition(a.port);
     const sx = a.srcX * w, sy = a.srcY * h;
     const tx = target.x * w, ty = target.y * h;
-    const color = "#ffb15f";
+    const color = palette.radarLive;
 
     // 尾迹线（从源到当前光点）
     const q = Math.min(t * 1.6, 1); // 光点先飞到位
