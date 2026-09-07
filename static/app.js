@@ -464,6 +464,8 @@ function recordHostEvent(port, now) {
 
 // renderPorts 每秒重绘端口速率条（数值全部来自真实事件流）。
 function renderPorts() {
+  // 帧耗时（EWMA）随端口条一起每秒刷新——真实渲染成本，不靠嘴说
+  $("m-frame").textContent = world.getStats().frameMs.toFixed(1) + " ms";
   const now = performance.now();
   const el = $("ports");
   el.textContent = "";
@@ -652,4 +654,4 @@ updateText();
 connect();
 
 // 调试句柄：module 作用域不外泄 state，显式暴露只读入口供控制台/自动化检查。
-window.PULSE = { state, camera: world.getCamera };
+window.PULSE = { state, camera: world.getCamera, stats: world.getStats };

@@ -38,9 +38,17 @@ const state = {
   lastTime: 0,
   visible: true,
   raf: 0,
+  frameMs: 0,        // 最近一帧的渲染耗时（EWMA 平滑）
+  terrainCount: 0,   // 最近一帧的地形粒子数
 };
 
 let canvas, ctx, W = 0, H = 0, R = 1;
+
+// 地形离屏缓存：地形是 (相机, 尺寸, 主题) 的纯函数。
+// 静止时不必每帧重算上万个粒子——重绘条件：缓存键变了 / 呼吸到期 / 正在移动。
+let terrainCache = null;
+let terrainCacheKey = "";
+let terrainLastCompute = 0;
 let palette = {};      // 由 setPalette 注入（主题相关颜色）
 let overlay = null;    // app.js 的实时层回调 (ctx, now, helpers)
 let onHouseSelect = null, onBookPick = null, onGroundPulse = null, onCameraMove = null;
@@ -86,6 +94,11 @@ export function setPalette(p) {
 // fn(ctx, now, helpers)；helpers.project 把世界坐标投到屏幕。
 export function setOverlay(fn) {
   overlay = fn;
+}
+
+// getStats 返回性能统计（调试/验收用）：frameMs 是 EWMA 平滑的帧渲染耗时。
+export function getStats() {
+  return { frameMs: state.frameMs, terrainCount: state.terrainCount, houses: state.houses.length };
 }
 
 // getCamera 返回当前相机快照（只读拷贝）。
@@ -297,7 +310,41 @@ function dottedEdge(h, a, b, color, alpha, step = 5) {
   }
 }
 
+// drawTerrainCached 是地形渲染的调度器：
+// - 静止：把地形画进离屏缓存，之后每帧 drawImage 直接贴（约等于零成本）；
+//   呼吸微光每 250ms 才重算一次（4Hz 的明暗脉动足够）。
+// - 移动/拖动/飞行：每帧用粗粒度重算（跟手优先，细节让路）。
+function drawTerrainCached(now) {
+  const speed = Math.hypot(state.velocity.x, state.velocity.y) * 1000; // 世界单位/秒
+  const moving = !!state.gesture || !!state.flight || speed > 50;
+  const key = moving
+    ? "" // 移动中不缓存：键每帧变化
+    : [camera.x.toFixed(2), camera.y.toFixed(2), camera.zoom.toFixed(4), W, H, palette.bg].join("|");
+  const shimmerDue = now - terrainLastCompute > 250;
+  if (!terrainCache || terrainCacheKey !== key || (!moving && shimmerDue)) {
+    if (!terrainCache) terrainCache = document.createElement("canvas");
+    const d = Math.min(devicePixelRatio || 1, 2);
+    terrainCache.width = Math.round(W * d);
+    terrainCache.height = Math.round(H * d);
+    const g = terrainCache.getContext("2d");
+    g.setTransform(d, 0, 0, d, 0, 0);
+    const realCtx = ctx; // 临时切到离屏：dot/segment 等 helper 都读模块级 ctx
+    ctx = g;
+    g.fillStyle = palette.bg;
+    g.fillRect(0, 0, W, H);
+    drawTerrain(moving ? 0 : now);
+    ctx = realCtx;
+    terrainCacheKey = key;
+    terrainLastCompute = now;
+  }
+  ctx.drawImage(terrainCache, 0, 0, W, H);
+}
+
 // drawTerrain 只采样可见局部的两层粒子；LOD 按二次幂交叉淡化。
+// 动态细节：拖动/飞行/惯性滚动中降为单层粗粒度、跳过辅助线、关闭呼吸——
+// 把帧预算留给跟手；静止后自动恢复全细节（视觉密度不变，只是少了动态微光）。
+// drawTerrain 的地形细节通过模块级 ctx 工作；
+// 离屏缓存时由 drawTerrainCached 先切换 ctx 再调用（见缓存调度器注释）。
 function drawTerrain(now) {
   const lo = unprojectCalc(view(), -20, -20);
   const hi = unprojectCalc(view(), W + 20, H + 20);
@@ -305,13 +352,18 @@ function drawTerrain(now) {
   const ideal = Math.max(7 / camera.zoom, 2 * Math.sqrt(area / TUNE.terrainDensity));
   const base = 2 ** Math.floor(Math.log2(ideal));
   const f = clamp(ideal / base - 1, 0, 1);
-  drawTerrainLevel(base, 1 - f * 0.55, now, lo, hi);
-  drawTerrainLevel(base * 2, f * 0.7, now, lo, hi);
+  state.terrainCount = 0;
+  if (now === 0) { // now=0 是移动中粗粒度模式的约定（由 drawTerrainCached 传入）
+    drawTerrainLevel(base * 2, 1, 0, lo, hi, false);
+    return;
+  }
+  drawTerrainLevel(base, 1 - f * 0.55, now, lo, hi, true);
+  drawTerrainLevel(base * 2, f * 0.7, now, lo, hi, true);
   drawGraticule(base * 6);
 }
 
 // drawTerrainLevel 根据世界格点计算确定性粒子，工作量受屏幕分辨率与 LOD 控制。
-function drawTerrainLevel(step, weight, now, lo, hi) {
+function drawTerrainLevel(step, weight, now, lo, hi, shimmerOn) {
   if (weight < 0.03) return;
   const x0 = Math.floor(lo.x / step), x1 = Math.ceil(hi.x / step);
   const y0 = Math.floor(lo.y / step), y1 = Math.ceil(hi.y / step);
@@ -326,9 +378,10 @@ function drawTerrainLevel(step, weight, now, lo, hi) {
       const band = Math.pow(Math.max(0, Math.cos(v * 19)), 8);
       const land = v > -0.12;
       let a = (land ? 0.29 + band * 0.48 : 0.13 + band * 0.12) * weight;
-      const shimmer = motionReduced ? 1 : 0.95 + 0.05 * Math.sin(now * 0.0005 + rnd * 8);
+      const shimmer = !shimmerOn || motionReduced ? 1 : 0.95 + 0.05 * Math.sin(now * 0.0005 + rnd * 8);
       a *= shimmer;
       dot(p, (land ? 0.85 : 0.55) + (rnd > 0.975 ? 0.55 : 0), land ? palette.land : palette.water, a);
+      state.terrainCount++;
     }
   }
 }
@@ -473,12 +526,13 @@ function drawInterior(h, alpha) {
 function render(now) {
   state.raf = 0;
   if (!state.visible) return;
+  const start = performance.now();
   const dt = Math.min(40, now - (state.lastTime || now));
   state.lastTime = now;
   advance(now, dt);
   ctx.fillStyle = palette.bg;
   ctx.fillRect(0, 0, W, H);
-  drawTerrain(now);
+  drawTerrainCached(now);
   state.hits = [];
   state.bookHits = [];
   if (camera.zoom < 0.12) drawDistricts();
@@ -487,6 +541,9 @@ function render(now) {
   // 实时层（真实访客/脉冲/雷达）由 app.js 注入
   if (overlay) overlay(ctx, now, { project, W, H });
   onCameraMove && onCameraMove(getCamera());
+  // 帧耗时 EWMA：供状态抽屉与验收读数
+  const cost = performance.now() - start;
+  state.frameMs = state.frameMs ? state.frameMs * 0.9 + cost * 0.1 : cost;
   state.raf = requestAnimationFrame(render);
 }
 
