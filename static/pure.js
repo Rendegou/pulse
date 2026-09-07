@@ -41,3 +41,15 @@ export const SEND_BUDGET_BYTES = 64 * 1024;
 export function canSend(dirty, readyStateOpen, bufferedAmount, budgetBytes = SEND_BUDGET_BYTES) {
   return dirty && readyStateOpen && bufferedAmount < budgetBytes;
 }
+
+// markSeen 事件去重登记：id 已见过返回 false，没见过则记录并返回 true。
+// seen 最多保留 max 条，超出时删掉最旧的（Set 按插入序迭代，第一个即最旧）。
+// 原地修改 seen；这是防止同一事件被重复播放的有界去重缓存。
+export function markSeen(seen, id, max = 256) {
+  if (seen.has(id)) return false;
+  seen.add(id);
+  if (seen.size > max) {
+    seen.delete(seen.values().next().value);
+  }
+  return true;
+}

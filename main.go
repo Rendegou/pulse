@@ -12,8 +12,11 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/fs"
 	"log"
+	"math"
 	"net/http"
 	"runtime"
 	"sync"
@@ -37,6 +40,11 @@ type Session struct {
 	Join int64   `json:"join"` // unix 毫秒
 
 	send chan []byte // 有界发送缓冲：消费不动就丢，绝不让队列无限增长
+
+	// 脉冲限频令牌桶（只允许 readPump 在 hub.mu 下访问）：
+	// 平均 2 次/秒，上限 4（突发），防止客户端无限扩散事件。
+	pulseTokens float64
+	pulseLast   time.Time
 }
 
 // ---------- Hub ----------
@@ -46,6 +54,7 @@ type Hub struct {
 	mu       sync.RWMutex
 	sessions map[*Session]bool
 	dropped  atomic.Uint64 // 因慢消费被丢弃的消息数
+	eventSeq atomic.Uint64 // 脉冲事件的单调序号（eventId 来源）
 }
 
 // NewHub 创建一个空的在线连接表。
@@ -131,6 +140,70 @@ type cursorDeltaMsg struct {
 	Y    float64 `json:"y"`
 }
 
+// msgHead 只取消息的 type 字段，用于按类型白名单分发到各自的解析结构。
+type msgHead struct {
+	Type string `json:"type"`
+}
+
+// pulseMsg 是浏览器 → 服务端的点击脉冲请求。
+// X/Y 用指针类型：Go 的 float64 零值无法区分"没传 x"和"传了 0"，
+// 指针为 nil 即"字段不存在"——这是必填校验的前提。
+type pulseMsg struct {
+	Type          string   `json:"type"`
+	ClientEventID string   `json:"clientEventId"`
+	X             *float64 `json:"x"`
+	Y             *float64 `json:"y"`
+}
+
+// pulseBroadcastMsg 是服务端校验通过后广播的脉冲事件。
+// eventId 由服务端生成（单调递增），身份 ID 取自当前连接的 Session，
+// 不信任客户端自报的身份。
+type pulseBroadcastMsg struct {
+	Type          string  `json:"type"`
+	EventID       string  `json:"eventId"`
+	ClientEventID string  `json:"clientEventId"` // 原样回传，供点击方对账
+	ID            string  `json:"id"`
+	X             float64 `json:"x"`
+	Y             float64 `json:"y"`
+	At            int64   `json:"at"`
+}
+
+// validatePulse 校验一条脉冲请求，返回规范化后的坐标。
+// 规则：clientEventId 存在且 ≤64 字符；x/y 必须存在（nil 即"没传"）、
+// 有限、且在 [0,1]——注意 {x:0,y:0} 是合法输入，零值不是缺失。
+// 任何一项不满足都返回 error；调用方丢弃该消息，不杀连接。
+func validatePulse(m pulseMsg) (float64, float64, error) {
+	if m.Type != "pulse" {
+		return 0, 0, errors.New("类型不是 pulse")
+	}
+	if m.ClientEventID == "" || len(m.ClientEventID) > 64 {
+		return 0, 0, errors.New("clientEventId 缺失或超长")
+	}
+	if m.X == nil || m.Y == nil {
+		return 0, 0, errors.New("缺少坐标字段")
+	}
+	x, y := *m.X, *m.Y
+	if math.IsNaN(x) || math.IsNaN(y) || math.IsInf(x, 0) || math.IsInf(y, 0) {
+		return 0, 0, errors.New("坐标必须是有限数")
+	}
+	if x < 0 || x > 1 || y < 0 || y > 1 {
+		return 0, 0, errors.New("坐标越界 [0,1]")
+	}
+	return x, y, nil
+}
+
+// allowPulse 按令牌桶检查并扣减一次脉冲额度：平均 2 次/秒回充，上限 4。
+// 调用方必须持有 hub.mu（与 Session 其他字段的保护一致）。
+func (s *Session) allowPulse(now time.Time) bool {
+	s.pulseTokens = math.Min(4, s.pulseTokens+now.Sub(s.pulseLast).Seconds()*2)
+	s.pulseLast = now
+	if s.pulseTokens < 1 {
+		return false
+	}
+	s.pulseTokens--
+	return true
+}
+
 // ---------- 主流程 ----------
 
 var upgrader = websocket.Upgrader{} // 默认校验 Origin==Host
@@ -192,6 +265,9 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Y:    0.25 + 0.5*float64(randByte())/255,
 		Join: time.Now().UnixMilli(),
 		send: make(chan []byte, 64),
+		// 脉冲令牌桶：初始满桶（4），允许新访客一次小爆发
+		pulseTokens: 4,
+		pulseLast:   time.Now(),
 	}
 
 	h.hub.mu.Lock()
@@ -217,32 +293,71 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // readPump 持续读这条连接的消息，直到断开（ReadMessage 报错即返回）。
-// {type:"cursor"} → 更新本连接 Session 的坐标并广播增量给所有人。
-// 畸形消息只跳过（continue），不杀连接——一条坏消息不该拖死整条线。
+// 单条消息上限 4 KiB；类型白名单分发，畸形/未知消息只跳过（continue），
+// 不杀连接——一条坏消息不该拖死整条线。
+// cursor → 更新坐标并广播增量；pulse → 校验 + 限频后广播脉冲事件。
 func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
+	conn.SetReadLimit(4096) // 协议消息都很小，超限的连接会被 gorilla 断开
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
-		var msg cursorMsg
-		if err := json.Unmarshal(data, &msg); err != nil {
-			continue
-		}
-		if msg.Type != "cursor" {
-			continue
-		}
-		// 坐标约定为 0..1 归一化，越界的一律丢弃（防异常客户端）
-		if msg.X < 0 || msg.X > 1 || msg.Y < 0 || msg.Y > 1 {
+		var head msgHead
+		if err := json.Unmarshal(data, &head); err != nil {
 			continue
 		}
 
-		// 改坐标必须持锁：Snapshot 和广播都在别处读这些字段
-		hub.mu.Lock()
-		s.X, s.Y = msg.X, msg.Y
-		hub.mu.Unlock()
+		switch head.Type {
+		case "cursor":
+			var msg cursorMsg
+			if err := json.Unmarshal(data, &msg); err != nil {
+				continue
+			}
+			// 坐标约定为 0..1 归一化，越界的一律丢弃（防异常客户端）
+			if msg.X < 0 || msg.X > 1 || msg.Y < 0 || msg.Y > 1 {
+				continue
+			}
 
-		hub.Broadcast(cursorDeltaMsg{Type: "cursor", ID: s.ID, X: s.X, Y: s.Y})
+			// 改坐标必须持锁：Snapshot 和广播都在别处读这些字段
+			hub.mu.Lock()
+			s.X, s.Y = msg.X, msg.Y
+			hub.mu.Unlock()
+
+			hub.Broadcast(cursorDeltaMsg{Type: "cursor", ID: s.ID, X: s.X, Y: s.Y})
+
+		case "pulse":
+			var pm pulseMsg
+			if err := json.Unmarshal(data, &pm); err != nil {
+				continue
+			}
+			x, y, err := validatePulse(pm)
+			if err != nil {
+				continue
+			}
+
+			// 令牌桶限频在锁内完成（桶字段的约定保护区）
+			hub.mu.Lock()
+			ok := s.allowPulse(time.Now())
+			hub.mu.Unlock()
+			if !ok {
+				continue // 超限丢弃：事件不被扩散，客户端得不到回放权
+			}
+
+			// 广播给所有人（含点击方）：第一版不做本地预播，
+			// 点击方也用这条回声播放，clientEventId 供以后对账
+			hub.Broadcast(pulseBroadcastMsg{
+				Type:          "pulse",
+				EventID:       fmt.Sprintf("e%d", hub.eventSeq.Add(1)),
+				ClientEventID: pm.ClientEventID,
+				ID:            s.ID,
+				X:             x,
+				Y:             y,
+				At:            time.Now().UnixMilli(),
+			})
+		default:
+			continue // 白名单外的类型一律忽略
+		}
 	}
 }
 

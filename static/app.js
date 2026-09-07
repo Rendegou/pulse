@@ -10,7 +10,7 @@
  * 这里只保留状态、副作用（DOM/网络/计时器）和绘制。
  */
 
-import { normalizePointer, appendPositionSample, canSend } from "./pure.js";
+import { normalizePointer, appendPositionSample, canSend, markSeen } from "./pure.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -98,6 +98,14 @@ function onMessage(e) {
       }
       break;
     }
+    case "pulse": {
+      // 脉冲事件到达：eventId 去重后进效果队列（有界 64 个）。
+      // 点击方也走这条路播放（第一版不做本地预播），clientEventId 留作对账依据。
+      if (!markSeen(seenPulses, e.eventId)) break;
+      pulses.push({ x: e.x, y: e.y, bornAt: performance.now(), mine: e.id === state.you });
+      if (pulses.length > 64) pulses.shift(); // 超界丢最旧
+      break;
+    }
     case "metrics":
       state.metrics = e;
       document.getElementById("m-conns").textContent = e.conns;
@@ -173,6 +181,23 @@ function draw() {
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
+  }
+
+  // 脉冲效果：扩散圆环，600ms 生命周期，过期即删（事件的视觉不留痕）。
+  // 自己点的脉冲用主题色，别人的用访客青色——和点的配色规则一致。
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const t = (now - pulses[i].bornAt) / 600;
+    if (t >= 1) {
+      pulses.splice(i, 1);
+      continue;
+    }
+    ctx.globalAlpha = (1 - t) * 0.8;
+    ctx.beginPath();
+    ctx.arc(pulses[i].x * w, pulses[i].y * h, 6 + t * 46, 0, Math.PI * 2);
+    ctx.strokeStyle = pulses[i].mine ? "#d9ff68" : "#79e6ff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.globalAlpha = 1;
   }
 
@@ -268,6 +293,13 @@ function tangentAt(buf, idx, key) {
 // pending 记录最近一次鼠标位置的归一化坐标；dirty 表示"有未发送的新位置"。
 const pending = { x: 0.5, y: 0.5, dirty: false };
 
+// pulses 是活动中的脉冲效果：{x, y, bornAt, mine}，600ms 生命周期，最多 64 个。
+// seenPulses 是 eventId 去重缓存（有界 256）：同一事件绝不重复播放。
+// pulseSeq 是本客户端的点击序号（clientEventId 来源，供服务端回传对账）。
+const pulses = [];
+const seenPulses = new Set();
+let pulseSeq = 0;
+
 // 鼠标移动时只做三件事：读 DOM（rect/坐标）→ 纯函数换算 → 记账 + 乐观更新自己的点。
 // 不在这里发消息（浏览器 mousemove 能到几百 Hz，会把服务器淹了）。
 canvas.addEventListener("mousemove", (e) => {
@@ -293,6 +325,17 @@ setInterval(() => {
   ws.send(JSON.stringify({ type: "cursor", x: pending.x, y: pending.y }));
   pending.dirty = false;
 }, 50);
+
+// ---------- 点击脉冲（功能包 A） ----------
+
+// 点击发送脉冲请求。点击是事件不是状态：每次都单独发送（不走 20Hz 采样），
+// 本地不预播——等服务端校验后的广播回来才画（见 onMessage 的 pulse 分支）。
+canvas.addEventListener("click", (e) => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const p = normalizePointer(e.clientX, e.clientY, canvas.getBoundingClientRect());
+  if (!p) return;
+  ws.send(JSON.stringify({ type: "pulse", clientEventId: `c${pulseSeq++}`, x: p.x, y: p.y }));
+});
 
 connect();
 requestAnimationFrame(draw);
