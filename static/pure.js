@@ -66,3 +66,12 @@ export function portPosition(port) {
   const a = -Math.PI / 2 + (idx / total) * Math.PI * 2;
   return { x: 0.5 + Math.cos(a) * 0.3, y: 0.5 + Math.sin(a) * 0.3 };
 }
+
+// ratePerSecond 计算时间戳序列在最近 windowMs 内的事件速率（条/秒）。
+// 调用方负责保证 times 按时间升序（乱序也能算，只是口径变成"窗口内总数/窗口"）。
+export function ratePerSecond(times, now, windowMs) {
+  const cutoff = now - windowMs;
+  let n = 0;
+  for (const t of times) if (t >= cutoff) n++;
+  return n / (windowMs / 1000);
+}

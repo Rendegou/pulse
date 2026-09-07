@@ -3,37 +3,64 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PULSE · 骨架</title>
+<title>PULSE — See the server breathe</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<div class="app">
 
-<header class="topbar">
-  <div class="brand">PUL<span>S</span>E</div>
-  <div class="tag">最小骨架 · 每个点都是真实连接</div>
-  <div class="live">
-    <span id="sensor-badge" class="sensor-badge off">SENSOR OFFLINE</span>
-    <span id="ws-dot" class="dot"></span><span id="ws-label">CONNECTING…</span>
-  </div>
-</header>
+  <header>
+    <div class="brand">PUL<span>S</span>E</div>
+    <div class="tag">SEE THE SERVER BREATHE</div>
+    <div class="live">
+      <span id="sensor-badge" class="sensor-badge off">SENSOR OFFLINE</span>
+      <span id="ws-dot" class="dot"></span><span id="ws-label">CONNECTING…</span>
+    </div>
+  </header>
 
-<main class="stage">
-  <canvas id="c"></canvas>
-  <div class="overlay">
-    <div class="kicker">PRESENCE · REALTIME</div>
-    <div class="headline">This is happening <em>right now.</em></div>
-    <div class="sub" id="you-label">…</div>
-  </div>
-  <div class="note">每个点 = 一个真实 WebSocket 连接 · 无任何模拟数据</div>
-</main>
+  <aside class="left">
+    <div class="section-title">VIEW</div>
+    <div class="mode active" data-mode="system">SYSTEM<small>presence + host radar</small></div>
+    <div class="mode" data-mode="presence">PRESENCE<small>live site sessions</small></div>
+    <div class="mode" data-mode="host">HOST RADAR<small>inbound port events</small></div>
 
-<footer class="bottom">
-  <div class="metric"><div class="label">ONLINE</div><div class="value" id="m-conns">0</div><div class="meta">真实长连接</div></div>
-  <div class="metric"><div class="label">GO HEAP</div><div class="value" id="m-heap">—</div><div class="meta">进程真实内存</div></div>
-  <div class="metric"><div class="label">GO SYS</div><div class="value" id="m-sys">—</div><div class="meta">向 OS 申请总量</div></div>
-  <div class="metric"><div class="label">DROPPED</div><div class="value" id="m-dropped">0</div><div class="meta">慢消费丢弃</div></div>
-</footer>
+    <div class="divider"></div>
+    <div class="section-title">LEGEND</div>
+    <div class="legend"><i class="l-you"></i>你（光环）</div>
+    <div class="legend"><i class="l-human"></i>其他真实连接</div>
+    <div class="legend"><i class="l-pulse"></i>点击脉冲</div>
+    <div class="legend"><i class="l-host"></i>主机事件（实线=live）</div>
+    <div class="legend"><i class="l-fixture"></i>fixture（虚线=演示注入）</div>
 
+    <div class="divider"></div>
+    <div class="section-title">PORTS · LIVE</div>
+    <div class="ports" id="ports"></div>
+  </aside>
+
+  <main class="stage">
+    <canvas id="c"></canvas>
+    <div class="overlay">
+      <div class="kicker" id="kicker">SYSTEM · REALTIME</div>
+      <div class="headline">This is happening <em>right now.</em></div>
+      <div class="sub" id="you-label">…</div>
+    </div>
+    <div class="note">所有数据来自真实连接与真实主机事件 · 模拟内容只会以虚线出现</div>
+  </main>
+
+  <aside class="right">
+    <h3>EVENT STREAM</h3>
+    <div class="feed" id="feed"></div>
+  </aside>
+
+  <footer class="bottom">
+    <div class="metric"><div class="label">ONLINE</div><div class="value" id="m-conns">0</div><div class="meta">真实长连接</div></div>
+    <div class="metric"><div class="label">HOST EVENTS</div><div class="value" id="m-hostrate">0/s</div><div class="meta">最近 10s 实测</div></div>
+    <div class="metric"><div class="label">GO HEAP</div><div class="value" id="m-heap">—</div><div class="meta">进程真实内存</div></div>
+    <div class="metric"><div class="label">GO SYS</div><div class="value" id="m-sys">—</div><div class="meta">向 OS 申请总量</div></div>
+    <div class="metric"><div class="label">DROPPED</div><div class="value" id="m-dropped">0</div><div class="meta">慢消费丢弃</div></div>
+  </footer>
+
+</div>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

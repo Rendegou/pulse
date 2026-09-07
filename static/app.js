@@ -10,7 +10,15 @@
  * 这里只保留状态、副作用（DOM/网络/计时器）和绘制。
  */
 
-import { normalizePointer, appendPositionSample, canSend, markSeen, portPosition, RADAR_PORTS } from "./pure.js";
+import {
+  normalizePointer,
+  appendPositionSample,
+  canSend,
+  markSeen,
+  portPosition,
+  ratePerSecond,
+  RADAR_PORTS,
+} from "./pure.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -22,6 +30,90 @@ const state = {
 };
 
 // ---------- WebSocket ----------
+
+// ---------- 视图模式 ----------
+
+// viewMode 决定画布画哪一层：system（全部）/ presence（只点）/ host（只雷达）。
+let viewMode = "system";
+for (const el of document.querySelectorAll(".mode")) {
+  el.onclick = () => {
+    document.querySelectorAll(".mode").forEach((x) => x.classList.remove("active"));
+    el.classList.add("active");
+    viewMode = el.dataset.mode;
+    document.getElementById("kicker").textContent =
+      viewMode === "system" ? "SYSTEM · REALTIME"
+      : viewMode === "presence" ? "PRESENCE · LIVE SESSIONS"
+      : "HOST RADAR · INBOUND PORTS";
+  };
+}
+
+// ---------- 事件流 ----------
+
+// feedEvent 把一条真实事件加到事件流顶部（最多 20 条）。
+// parts 是 [css类, 文本] 数组；全部用 textContent 构造，服务器数据绝不进 innerHTML。
+function feedEvent(parts) {
+  const feed = document.getElementById("feed");
+  const el = document.createElement("div");
+  el.className = "event";
+  const time = document.createElement("div");
+  time.className = "time";
+  time.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  const msg = document.createElement("div");
+  msg.className = "msg";
+  for (const [cls, text] of parts) {
+    const span = document.createElement(cls === "b" ? "b" : "span");
+    if (cls !== "b" && cls) span.className = cls;
+    span.textContent = text;
+    msg.appendChild(span);
+  }
+  el.append(time, msg);
+  feed.prepend(el);
+  while (feed.children.length > 20) feed.lastChild.remove();
+}
+
+// ---------- 端口速率（真实事件统计） ----------
+
+// hostTimes 是主机事件的到达时刻记录（用于算真实速率，不是服务器给的数字）。
+const hostTimes = [];
+const portTimes = new Map(); // port -> [t...]
+
+// recordHostEvent 记录一次主机事件的时间戳（全局 + 按端口）。
+// 只留最近 10 秒，速率窗口滚动。
+function recordHostEvent(port, now) {
+  hostTimes.push(now);
+  if (!portTimes.has(port)) portTimes.set(port, []);
+  portTimes.get(port).push(now);
+  const cutoff = now - 10_000;
+  while (hostTimes.length && hostTimes[0] < cutoff) hostTimes.shift();
+  for (const arr of portTimes.values()) {
+    while (arr.length && arr[0] < cutoff) arr.shift();
+  }
+}
+
+// renderPorts 每秒重绘一次端口速率条（数值全部来自真实事件流）。
+function renderPorts() {
+  const now = performance.now();
+  const el = document.getElementById("ports");
+  el.textContent = "";
+  const rates = RADAR_PORTS.map((p) => ratePerSecond(portTimes.get(p) || [], now, 10_000));
+  const max = Math.max(...rates, 0.01);
+  RADAR_PORTS.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "prow" + (rates[i] > 0.5 ? " hot" : "");
+    const name = document.createElement("span");
+    name.textContent = ":" + p;
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const fill = document.createElement("span");
+    fill.style.width = Math.max(3, (rates[i] / max) * 100) + "%";
+    bar.appendChild(fill);
+    const val = document.createElement("span");
+    val.textContent = rates[i] > 0 ? rates[i].toFixed(1) + "/s" : "—";
+    row.append(name, bar, val);
+    el.appendChild(row);
+  });
+}
+setInterval(renderPorts, 1000); // 端口条 1s 刷新一次
 
 // connect 建立 WebSocket 并挂上断线重连（指数退避，上限 5 秒）。
 // ws 是模块级变量：其他代码（比如光标上报）也要用它发送。
@@ -79,10 +171,12 @@ function onMessage(e) {
         ...e.session,
         bornAt: performance.now(),
       });
+      feedEvent([["k-join", "join  "], ["b", e.session.id], ["", " connected"]]);
       break;
     case "leave": {
       const s = state.sessions.get(e.id);
       if (s) s.deadAt = performance.now(); // 标记死亡，动画里消散
+      feedEvent([["k-leave", "leave "], ["b", e.id], ["", " disconnected"]]);
       break;
     }
     case "cursor": {
@@ -107,6 +201,11 @@ function onMessage(e) {
       if (!markSeen(seenPulses, e.eventId)) break;
       pulses.push({ x: e.x, y: e.y, bornAt: performance.now(), mine: e.id === state.you });
       if (pulses.length > 64) pulses.shift(); // 超界丢最旧
+      feedEvent([
+        ["k-pulse", "pulse "],
+        ["b", e.id],
+        ["", ` 点击 (${e.x.toFixed(2)}, ${e.y.toFixed(2)})`],
+      ]);
       break;
     }
     case "host_event": {
@@ -122,6 +221,12 @@ function onMessage(e) {
         mode: e.mode,
       });
       if (hostArcs.length > 32) hostArcs.shift(); // 超界丢最旧
+      recordHostEvent(e.destinationPort, performance.now());
+      feedEvent([
+        ["k-host", "host  "],
+        ["b", e.sourceId],
+        ["", ` → :${e.destinationPort} · ${e.kind}${e.mode === "fixture" ? " · fixture" : ""}`],
+      ]);
       break;
     }
     case "metrics":
@@ -133,6 +238,9 @@ function onMessage(e) {
         e.sys_mb.toFixed(1) + " MB";
       document.getElementById("m-dropped").textContent = e.dropped;
       // sensor 在线状态徽标：无事件不等于离线，10 秒无心跳才算离线
+      // HOST EVENTS：最近 10 秒实测速率（客户端自己数，不信服务器报数）
+      document.getElementById("m-hostrate").textContent =
+        ratePerSecond(hostTimes, performance.now(), 10_000).toFixed(1) + "/s";
       const badge = document.getElementById("sensor-badge");
       badge.textContent = e.sensor_online ? "HOST LIVE" : "SENSOR OFFLINE";
       badge.className = "sensor-badge " + (e.sensor_online ? "on" : "off");
@@ -165,7 +273,12 @@ function draw() {
   const now = performance.now();
   const breathe = (phase) => 1 + 0.18 * Math.sin(now / 600 + phase); // 呼吸感
 
-  drawRadar(now);
+  if (viewMode !== "presence") drawRadar(now);
+
+  if (viewMode === "host") {
+    requestAnimationFrame(draw);
+    return; // 纯雷达视图：不画点和脉冲
+  }
 
   for (const [id, s] of state.sessions) {
     const isYou = id === state.you;
