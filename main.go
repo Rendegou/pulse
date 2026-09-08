@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/rand"
 	"embed"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -33,15 +34,102 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+// ---------- 世界地标（岛屿） ----------
+
+// Island 是服务端权威的世界地标（个人空间）。
+// 位置/半径/朝向/种子决定岛屿的确定性形状，客户端必须用同一组参数生成几何。
+type Island struct {
+	ID     string  `json:"id"`   // 稳定 id，如 "origin" / "rain" / "letter"
+	Name   string  `json:"name"` // 示例名称（前端按语言本地化，这里保留原文）
+	X      float64 `json:"x"`    // 世界坐标中心
+	Y      float64 `json:"y"`
+	R      float64 `json:"r"`      // 岛半径（世界单位）
+	SY     float64 `json:"sy"`     // 俯视压扁系数
+	Rot    float64 `json:"rot"`    // 岛屿自转角（弧度）
+	Seed   int     `json:"seed"`   // 确定性粒子/岸线种子
+	Sample bool    `json:"sample"` // true=示例岛（前端必须标注示例）
+}
+
+// islands 是唯一权威的固定三座岛。
+// 数值取自视觉稿 outputs/pulse-tidal-islands.html 第 55 行的 islands 数组（id 与名称另取自
+// 同一文件的 copy.zh.names）；改这里必须同步改视觉稿，否则前后端几何会错位。
+var islands = []Island{
+	{ID: "origin", Name: "你的原点", X: 0, Y: 0, R: 242, SY: 0.74, Rot: -0.35, Seed: 4, Sample: true},
+	{ID: "rain", Name: "雨后手记", X: -1060, Y: -640, R: 181, SY: 0.70, Rot: 0.4, Seed: 12, Sample: true},
+	{ID: "letter", Name: "远山来信", X: 1030, Y: -490, R: 212, SY: 0.76, Rot: -0.7, Seed: 21, Sample: true},
+}
+
+// islandShoreTolerance 是岸线判定容差：归一化椭圆距离 ≤ 该值视为在岛上（含岸边浅滩）。
+// 与前端岸线绘制的容差是同一个数，改这里要同步前端。
+const islandShoreTolerance = 1.15
+
+// Islands 返回权威岛列表的拷贝，供 welcome 与 /healthz 使用。
+// 返回值归调用方所有：调用方修改它不会影响内部定义，内部也不会再改已返回的切片。
+func Islands() []Island {
+	out := make([]Island, len(islands))
+	copy(out, islands)
+	return out
+}
+
+// islandByID 按稳定 id 查一座岛。
+// 未知 id 返回零值与 false；不读时钟、不访问网络、不改状态。
+func islandByID(id string) (Island, bool) {
+	for _, isl := range islands {
+		if isl.ID == id {
+			return isl, true
+		}
+	}
+	return Island{}, false
+}
+
+// islandNormDist 返回世界点到岛屿中心的归一化椭圆距离（1.0 即岸线本身）。
+// 岛的 R/SY 非正视为非法定义，返回 +Inf 而不是除零后的 NaN/Inf，
+// 让调用方的比较逻辑无需特判；不修改输入。
+func islandNormDist(isl Island, x, y float64) float64 {
+	if isl.R <= 0 || isl.SY <= 0 {
+		return math.Inf(1)
+	}
+	return math.Hypot((x-isl.X)/isl.R, (y-isl.Y)/(isl.R*isl.SY))
+}
+
+// islandContains 判定一个世界点是否落在该岛的岸线包围内（椭圆近似 + 浅滩容差）。
+// 只做几何判断，不改任何状态；R/SY 非法的岛定义一律返回 false。
+func islandContains(isl Island, x, y float64) bool {
+	return islandNormDist(isl, x, y) <= islandShoreTolerance
+}
+
+// resolveIsland 返回世界坐标命中的岛 id，都不命中返回 ""（在海上）。
+// 多座岛同时命中时取归一化距离最近的一座；坐标非法（NaN）时返回 ""。
+// 这是服务端对岛归属的唯一权威判定，客户端自报的 island 只用于日志对账。
+func resolveIsland(x, y float64) string {
+	if math.IsNaN(x) || math.IsNaN(y) {
+		return ""
+	}
+	bestID, bestDist := "", math.Inf(1)
+	for _, isl := range islands {
+		d := islandNormDist(isl, x, y)
+		if d > islandShoreTolerance || d >= bestDist {
+			continue
+		}
+		bestID, bestDist = isl.ID, d
+	}
+	return bestID
+}
+
 // ---------- Session ----------
 
 // Session 是一个站内访客的真实长连接。没有用户表、没有数据库：
 // 断线即消散。
+//
+// 坐标只有一套：WX/WY 是连续平面的世界坐标（不是屏幕归一化 0..1）。
+// 旧协议的 x/y 出生字段已删除，v=2 的光标上报也不再接受——
+// 旧语义与新语义不能并存，否则同一个 Session 会有两套互相矛盾的坐标。
 type Session struct {
-	ID   string  `json:"id"`
-	X    float64 `json:"x"` // 出生位置，0..1 归一化坐标
-	Y    float64 `json:"y"`
-	Join int64   `json:"join"` // unix 毫秒
+	ID     string  `json:"id"`
+	WX     float64 `json:"wx"` // 最近已知世界坐标
+	WY     float64 `json:"wy"`
+	Island string  `json:"island"` // 服务端判定的所在岛 id；空字符串=在海上
+	Join   int64   `json:"join"`   // unix 毫秒
 
 	send chan []byte // 有界发送缓冲：满了说明是慢消费者，由 Broadcast 断开整条连接
 
@@ -51,6 +139,10 @@ type Session struct {
 	// 平均 2 次/秒，上限 4（突发），防止客户端无限扩散事件。
 	pulseTokens float64
 	pulseLast   time.Time
+
+	// lastLoggedMismatch 记录最近一次已写日志的"客户端自报岛"，只用于日志去重：
+	// 20Hz 上报里同一个错误值不该刷屏。同样在 hub.mu 下访问，不参与 JSON 序列化。
+	lastLoggedMismatch string
 }
 
 // ---------- Hub ----------
@@ -116,6 +208,7 @@ func (h *Hub) Snapshot() []Session {
 type welcomeMsg struct {
 	Type     string    `json:"type"`
 	You      string    `json:"you"`
+	Islands  []Island  `json:"islands"` // 权威岛列表：客户端用它生成几何，不允许自造岛
 	Sessions []Session `json:"sessions"`
 }
 type joinMsg struct {
@@ -135,24 +228,36 @@ type metricsMsg struct {
 	SensorOnline bool    `json:"sensor_online"` // Host Radar sensor 是否在线
 }
 
-// cursorMsg 是浏览器 → 服务端的光标上报（20Hz 采样）。
-// v=2 起 WX/WY 是连续平面世界坐标（不再是屏幕归一化 0..1）；
-// 旧版 x/y 字段的语义在 v2 中明确废弃，协议变化以 v 字段为准。
+// cursorMsg 是浏览器 → 服务端的光标上报（约 20Hz 采样）。
+// v=3 起：wx/wy 是连续平面的世界坐标，island 是客户端自报的所在岛（"" 或省略=在海上）。
+// 自报的 island 只是对账线索：广播出去的归属一律由服务端 resolveIsland 重新判定。
 type cursorMsg struct {
-	Type string   `json:"type"`
-	V    int      `json:"v"`
-	WX   *float64 `json:"wx"`
-	WY   *float64 `json:"wy"`
+	Type   string   `json:"type"`
+	V      int      `json:"v"`
+	WX     *float64 `json:"wx"`
+	WY     *float64 `json:"wy"`
+	Island string   `json:"island"`
 }
 
-// cursorDeltaMsg 是服务端广播给其他人的光标增量。
-// cursorDeltaMsg 是服务端广播的光标增量（v=2：世界坐标）。
+// cursorDeltaMsg 是服务端广播给其他人的光标增量（v=3：世界坐标 + 服务端判定的岛）。
 type cursorDeltaMsg struct {
-	Type string  `json:"type"`
-	V    int     `json:"v"`
-	ID   string  `json:"id"`
-	WX   float64 `json:"wx"`
-	WY   float64 `json:"wy"`
+	Type   string  `json:"type"`
+	V      int     `json:"v"`
+	ID     string  `json:"id"`
+	WX     float64 `json:"wx"`
+	WY     float64 `json:"wy"`
+	Island string  `json:"island"`
+}
+
+// presenceMsg 是一条连接的岛归属真正发生变化时的一次广播。
+// at 是服务端 unix 毫秒；同一座岛内的连续移动不发这个类型，避免 20Hz 刷屏。
+type presenceMsg struct {
+	Type   string  `json:"type"`
+	ID     string  `json:"id"`
+	Island string  `json:"island"`
+	WX     float64 `json:"wx"`
+	WY     float64 `json:"wy"`
+	At     int64   `json:"at"`
 }
 
 // msgHead 只取消息的 type 字段，用于按类型白名单分发到各自的解析结构。
@@ -209,6 +314,36 @@ func validatePulse(m pulseMsg) (float64, float64, error) {
 	// 世界坐标有界但不限 [0,1]：连续平面世界，防御性上限 1e7
 	if math.Abs(x) > 1e7 || math.Abs(y) > 1e7 {
 		return 0, 0, errors.New("坐标超出世界范围")
+	}
+	return x, y, nil
+}
+
+// validateCursor 校验一条光标上报，返回规范化后的世界坐标。
+// 规则：type=cursor；v 必须为 3；wx/wy 必须存在（nil 即"没传"，0 是合法坐标）、
+// 有限、|值| ≤ 1e7；island 非空时必须能在权威列表里找到。
+// 任何一项不满足都返回 error，调用方丢弃整条消息但不杀连接。
+// 注意：本函数不返回 island——客户端自报值不参与判定，权威归属由 resolveIsland 重算。
+func validateCursor(m cursorMsg) (float64, float64, error) {
+	if m.Type != "cursor" {
+		return 0, 0, errors.New("类型不是 cursor")
+	}
+	if m.V != 3 {
+		return 0, 0, errors.New("协议版本不支持（需要 v=3）")
+	}
+	if m.WX == nil || m.WY == nil {
+		return 0, 0, errors.New("缺少坐标字段")
+	}
+	x, y := *m.WX, *m.WY
+	if math.IsNaN(x) || math.IsNaN(y) || math.IsInf(x, 0) || math.IsInf(y, 0) {
+		return 0, 0, errors.New("坐标必须是有限数")
+	}
+	if math.Abs(x) > 1e7 || math.Abs(y) > 1e7 {
+		return 0, 0, errors.New("坐标超出世界范围")
+	}
+	if m.Island != "" {
+		if _, ok := islandByID(m.Island); !ok {
+			return 0, 0, errors.New("island 不在权威列表")
+		}
 	}
 	return x, y, nil
 }
@@ -444,11 +579,11 @@ func main() {
 	}
 
 	http.Handle("/ws", wsHandler{hub})
-	// 健康检查：供部署脚本和巡检确认进程活着、在收连接
+	// 健康检查：供部署脚本和巡检确认进程活着、在收连接、带多少座权威岛
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		fmt.Fprintf(w, `{"status":"ok","conns":%d,"uptime_s":%d}`,
-			hub.Count(), int64(time.Since(startedAt).Seconds()))
+		fmt.Fprintf(w, `{"status":"ok","conns":%d,"islands":%d,"uptime_s":%d}`,
+			hub.Count(), len(Islands()), int64(time.Since(startedAt).Seconds()))
 	})
 	// 静态文件禁缓存：开发期改完刷新就生效，不被旧 app.js 拖住
 	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -490,8 +625,6 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s := &Session{
 		ID:   "visitor-" + shortID(),
-		X:    0.2 + 0.6*float64(randByte())/255, // 出生在场景区间内
-		Y:    0.25 + 0.5*float64(randByte())/255,
 		Join: time.Now().UnixMilli(),
 		send: make(chan []byte, 64),
 		conn: conn,
@@ -499,6 +632,10 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		pulseTokens: 4,
 		pulseLast:   time.Now(),
 	}
+	// 出生位置用加密随机数散落在世界范围内，再按权威判定写归属：
+	// 出生在岛上就带岛，出生在海上就是 ""，客户端不需要自己猜。
+	s.WX, s.WY = spawnWorldPos()
+	s.Island = resolveIsland(s.WX, s.WY)
 
 	h.hub.mu.Lock()
 	h.hub.sessions[s] = true
@@ -516,7 +653,7 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 先告诉新连接“你是谁、都有谁在线”，再向大家广播你的到来。
 	// welcome 写失败不能继续：直接返回，defer 完成清理。
-	if err := conn.WriteJSON(welcomeMsg{Type: "welcome", You: s.ID, Sessions: h.hub.Snapshot()}); err != nil {
+	if err := conn.WriteJSON(welcomeMsg{Type: "welcome", You: s.ID, Islands: Islands(), Sessions: h.hub.Snapshot()}); err != nil {
 		return
 	}
 	h.hub.Broadcast(joinMsg{Type: "join", Session: *s})
@@ -574,24 +711,35 @@ func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
-			// v2 世界坐标：必须带版本号、字段存在、有限、世界范围内
-			if msg.V != 2 || msg.WX == nil || msg.WY == nil {
-				continue
+			wx, wy, err := validateCursor(msg)
+			if err != nil {
+				continue // 版本/坐标/岛名不合法：整条丢弃，连接照常
 			}
-			wx, wy := *msg.WX, *msg.WY
-			if math.IsNaN(wx) || math.IsNaN(wy) || math.IsInf(wx, 0) || math.IsInf(wy, 0) {
-				continue
-			}
-			if math.Abs(wx) > 1e7 || math.Abs(wy) > 1e7 {
-				continue
-			}
+			// 服务端权威判定：不信任客户端自报的 island
+			isl := resolveIsland(wx, wy)
 
-			// 改坐标必须持锁：Snapshot 和广播都在别处读这些字段
+			// 坐标与岛归属必须一起改，且在锁内：Snapshot 和归属比较都在别处读这些字段
 			hub.mu.Lock()
-			s.X, s.Y = wx, wy
+			prevIsland := s.Island
+			s.WX, s.WY, s.Island = wx, wy, isl
+			// 自报值与权威值不一致时记日志（同一个错误值只记一次，20Hz 不刷屏）
+			logMismatch := msg.Island != isl && s.lastLoggedMismatch != msg.Island
+			if logMismatch {
+				s.lastLoggedMismatch = msg.Island
+			}
 			hub.mu.Unlock()
 
-			hub.Broadcast(cursorDeltaMsg{Type: "cursor", V: 2, ID: s.ID, WX: wx, WY: wy})
+			if logMismatch {
+				log.Printf("cursor %s 自报 island=%q，服务端判定 %q（以服务端为准）", s.ID, msg.Island, isl)
+			}
+			hub.Broadcast(cursorDeltaMsg{Type: "cursor", V: 3, ID: s.ID, WX: wx, WY: wy, Island: isl})
+
+			// 只有归属真的变化才广播 presence：同一岛内移动不刷屏
+			if isl != prevIsland {
+				hub.Broadcast(presenceMsg{
+					Type: "presence", ID: s.ID, Island: isl, WX: wx, WY: wy, At: time.Now().UnixMilli(),
+				})
+			}
 
 		case "pulse":
 			var pm pulseMsg
@@ -650,9 +798,16 @@ func shortID() string {
 	return hex.EncodeToString(b)
 }
 
-// randByte 返回一个加密随机字节，用于让出生位置在场景区间内散开。
-func randByte() byte {
-	b := make([]byte, 1)
-	_, _ = rand.Read(b)
-	return b[0]
+// randFloat64 返回 [0,1) 的加密随机浮点数（取 8 字节随机数的高 53 位，避免精度溢出）。
+// 用于出生位置散布：不依赖 math/rand 的全局种子，多实例之间也不会撞同一串序列。
+func randFloat64() float64 {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return float64(binary.BigEndian.Uint64(b[:])>>11) / float64(uint64(1)<<53)
+}
+
+// spawnWorldPos 返回一个出生世界坐标：以 origin 岛为中心的 ±1200 世界单位方形内。
+// 纯随机、无状态；调用方负责用 resolveIsland 判定该点的岛归属。
+func spawnWorldPos() (float64, float64) {
+	return (randFloat64()*2 - 1) * 1200, (randFloat64()*2 - 1) * 1200
 }
