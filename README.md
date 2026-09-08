@@ -1,14 +1,12 @@
 # PULSE
 
-把真实 WebSocket 连接、光标移动和服务端运行指标画在同一张画布上的 Go + JavaScript 项目，也是一个由你亲手推进的实时应用练习项目。
+把真实 WebSocket 连接、光标移动和服务端运行指标画在同一片粒子海面上的 Go + JavaScript 项目，也是一个由你亲手推进的实时应用练习项目。
 
-每个点表示一条连接；两个标签页是两个点，不代表两个经过认证的人。服务端暂存在线状态，刷新或重连会重新分配身份。
+每个光标表示一条真实连接；两个标签页是两条连接，不代表两个经过认证的人。服务端暂存在线状态与所在岛，刷新或重连会重新分配身份。岛屿与文章是标注清楚的示例内容。
 
 ## 从哪里继续
 
-先打开 [新协作路线](docs/07-ai-assisted-roadmap.md) 和 [当前进度](docs/05-progress-and-validation.md)。L1–L3 已有实现，下一包是点击脉冲与必要输入保护；之后补可靠连接，再进入固定二维博客街区。
-
-计划于 2026-09-07 按本地提交 `4946e28` 与实际源码更新为协作计划 v2；这不表示产品达到 v2 发布标准。
+先打开 [当前方向（自己的小世界）](docs/14-personal-worlds-direction.md) 和 [当前进度](docs/05-progress-and-validation.md)。视觉基准是 [潮汐群岛概念稿](outputs/pulse-tidal-islands.html)，已迁入正式前端；下一步建议是确定“朋友到岛上后的第一个共同动作”。
 
 ## 本地运行
 
@@ -22,15 +20,20 @@ go run .
 浏览器打开 `http://127.0.0.1:8090`，再开第二个标签页做对照。静态文件通过 `go:embed` 编译进进程，改 JS/HTML 后需要重启 Go 进程，再刷新页面。
 
 ```powershell
-go test ./...
+$env:GOCACHE = Join-Path $env:TEMP 'pulse-go-cache'
 go vet ./...
+go test ./... -count=1
+go test -race ./... -count=1   # 需要 CGO 与 C 编译器；没有就记录真实报错，不要记成通过
 node --check static/app.js
+node --check static/world.js
+node --check static/islands.js
 node --check static/pure.js
-node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs
+node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs work/world.test.mjs work/tidal.test.mjs
+node work/check-tidal-ui.cjs http://127.0.0.1:8090   # 需要 go run . 正在运行
 git diff --check
 ```
 
-当前没有 Go 测试文件；`[no test files]` 只表示命令能运行，不能证明行为正确。具体检查层级见 [进度与验证](docs/05-progress-and-validation.md)。
+`main_test.go` 有 Go 行为测试：`validatePulse`/`validateCursor` 的字段边界、令牌桶、权威岛判定，以及慢消费者回收和 presence 广播两条真实 WebSocket 集成用例。测试通过只覆盖这些路径，不等于浏览器端和部署环境已验证。具体检查层级见 [进度与验证](docs/05-progress-and-validation.md)。
 
 ## 协作方式
 
