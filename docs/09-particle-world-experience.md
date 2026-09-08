@@ -1,5 +1,7 @@
 # PULSE 粒子地表世界 · 给 KIMI 的体验修订与 Demo
 
+> 2026-09-08 后续修订：[10 抽象个人空间与流畅度](10-abstract-space-and-performance.md) 优先。用户选择用粒子边界围出书桌、书架、庭院，传统屋顶改为轻薄上层点线；本轮也已修改正式 `static/world.js`。下文的传统屋顶造型与未接产品状态是 09-07 快照；截图随最新独立 Demo 更新，曲面世界与连续下降的目标继续有效。
+
 更新：2026-09-07。产品源码核对基线：`3f2b9d9`。本次交付独立 HTML、实际运行截图和交接文档；没有修改 `static/` 或 Go 服务，没有提交、推送或部署。
 
 **当前空间体验以本文为准。** [08 旧方案](08-ui-redesign-brief-for-kimi.md) 中“固定开放书房作为首页”“轴测房间作为整体构图”已被用户纠正。主题、双语、阅读、自由搭建、小状态区等需求继续保留。
@@ -44,9 +46,9 @@ node work/serve-particle-demo.mjs
 
 ![深色地表：房子分布在连续曲面上](design/particle-world-overview.png)
 
-![下降途中：同一房子随着镜头靠近变大](design/particle-world-descent.png)
+![下降途中：同一空间随着镜头靠近变大](design/particle-world-descent.png)
 
-![室内：屋顶退去，桌面上的书进入阅读](design/particle-world-interior.png)
+![停留：上层点线退去，桌面上的书进入阅读](design/particle-world-interior.png)
 
 ![明亮模式：使用同一世界与相机](design/particle-world-light.png)
 

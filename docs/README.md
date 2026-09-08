@@ -6,7 +6,15 @@
 
 ## 现在看这三处
 
-当前 UI 重构请先读 [粒子地表世界：体验修订与 KIMI 交接](09-particle-world-experience.md)，并运行 [交互 Demo](../outputs/pulse-particle-world-demo.html)：巨大曲面地表漫游 → 靠近房屋 → 连续下降、屋顶淡去 → 文章阅读。该方案按 `3f2b9d9` 核对；[08 旧书房方案](08-ui-redesign-brief-for-kimi.md) 的固定房间首页构图已被取代，主题、双语、自由搭建等目标保留。下列课程进度仍需结合最新源码判断。
+**2026-09-09 最新产品方向：[14 自己的小世界，真实的相遇](14-personal-worlds-direction.md)。** 每个人有自己的岛，核心是拜访、陪伴和共同留下痕迹；文章是可选内容。用户认可 [潮汐群岛 HTML](../outputs/pulse-tidal-islands.html) 的整体视觉，文章陈列仍待调整。
+
+同日实现：潮汐群岛视觉已迁入正式前端（`static/world.js` 三层画布 + `static/islands.js` 岛屿数据），后端加入权威岛屿列表与访客在场（cursor v=3、`presence` 广播）。证据与限制见 [进度与验证](05-progress-and-validation.md) 顶部；**画面是否好看仍由用户实际操作后评价**。
+
+此前视觉探索：[13 粒子纵深](13-particle-depth-direction.md)（复盘 + §9 实现记录），保存俯瞰粒子地表、镜头纵深与三篇文章标签的尝试。该文包含不同轮次的原型和产品改动记录，具体实现以源码为准；三篇文章的摆放不能作为新方向的强制要求。
+
+2026-09-08 先前记录：[11 文章岛](11-publication-islands.md) 曾是正式前端视觉实现（纵深不足）；[12 横版多层岛](12-floating-isles-stele-forest.md) 是被否定的实验（原型与截图已清理）；[10 抽象空间与性能](10-abstract-space-and-performance.md) 记录此前缓存修复与性能对照。
+
+历史 UI 背景见 [09 粒子地表世界](09-particle-world-experience.md) 与 [当时的 Demo](../outputs/pulse-particle-world-demo.html)，用于理解巨大曲面和连续靠近的初衷，不作为当前验收目标。[08 旧书房方案](08-ui-redesign-brief-for-kimi.md) 保留主题、双语等背景。当前执行先读 13；下列课程进度仍需结合最新源码判断。
 
 1. [新执行路线与 agent 交接文本](07-ai-assisted-roadmap.md)：当前下一包是点击脉冲，不再从 L1 重来。
 2. [进度与验证](05-progress-and-validation.md)：确认已有实现、实际检查和仍缺的证据。

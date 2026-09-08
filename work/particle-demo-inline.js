@@ -1,13 +1,24 @@
 
 'use strict';
+// BEGIN SHARED SPACE CACHE
+// 正式渲染器的有界缓存；仅本页拥有，模拟访客不进入静态位图。
+const TUNE = {terrainDensity:8000};
+const terrainTiles = new Map();
+// 每档复用坐标数组，避免每个可见粒子分配对象。
+const particleBuckets = Array.from({length:12}, () => []);
+let terrainCache=null, terrainCacheKey='', scenePaints=0, paletteVersion=0;
+// END SHARED SPACE CACHE
+
+
 // 此独立 Demo 只用确定性生成的地表与示例房屋，不连接 /ws，不代表生产用户或无限存储。
-const canvas=document.getElementById('world'),ctx=canvas.getContext('2d');
+const canvas=document.getElementById('world');
+let ctx=canvas.getContext('2d');
 const themeMedia=matchMedia('(prefers-color-scheme: dark)'),motionMedia=matchMedia('(prefers-reduced-motion: reduce)');
 const camera={x:0,y:0,zoom:.66};
 const state={lang:'zh',theme:'system',selected:null,inside:null,flight:null,returnView:null,hover:null,ghosts:true,pointers:new Map(),gesture:null,velocity:{x:0,y:0},lastTime:0,tick:0,hits:[],bookHits:[],houses:[],terrainCount:0,frameMs:0,visible:true,raf:0};
 let W=innerWidth,H=innerHeight,R=1,palette=null,uiTime=0,noticeTimer=0,originFocus=null;
 const THEMES={dark:{bg:'#101b20',land:'#95b9ad',water:'#496972',contour:'#698d80',line:'#a8c5b6',fill:'#14262a',roof:'#88afa0',accent:'#d7b38c',paper:'#c4d8c7',muted:'#87a7a0'},light:{bg:'#eef2ec',land:'#628575',water:'#bac8c0',contour:'#91a998',line:'#456559',fill:'#e5ece1',roof:'#5b7e6a',accent:'#805734',paper:'#3d6459',muted:'#648275'}};
-const WORDS={zh:{place:'无界原野',sub:'掠过地表，在某一盏灯旁停下来。',near:'附近的空间',hint:'拖动地表 · 滚轮靠近 · 点击房子下降',inHint:'点击桌上的书阅读 · 返回上空继续漫游',demo:'交互原型 · 房屋 / 访客均为演示',enter:'向下进入',cancel:'取消',back:'↑ 回到上空',home:'归处',help:'玩法',light:'明亮',dark:'深色',address:'输入一个地点，去那里',addressLabel:'地点字符串',houseDesc:'示例空间，有三篇可阅读的短文。',insideDesc:'屋顶已打开。桌上的书就是文章。',helpTitle:'从上空，到一本书',helpCopy:'拖动像转动脚下的巨大地表，滚轮或双指缩放。点击一间房子，再选择“向下进入”，相机会连续靠近，屋顶淡去。可用方向键漫游、+ / − 缩放、Esc 返回；“附近的空间”也可用键盘选择。',limits:'这是视觉原型：世界按坐标生成，没有真实多人或远端文章。地表没有可见球体边缘；缩放有数值保护，横向探索不会生成无限常驻对象。相同地点字符串在本 Demo 中会回到相同位置。',ghostOn:'隐藏演示访客',ghostOff:'显示演示访客',articleSource:'示例文章 · 非真实博客导入',zoomLimit:'已到当前细节尺度，仍可向任意方向漫游。',observer:'演示',close:'关闭',go:'前往',worldLabel:'可拖动缩放的粒子世界；亦可用方向键漫游，通过附近空间按钮进入房子'},en:{place:'Open terrain',sub:'Glide above the surface. Find a place to stay.',near:'Nearby places',hint:'Drag to explore · Scroll to approach · Select a house',inHint:'Select a book to read · Return above to explore',demo:'Concept demo · Generated houses and simulated visitors',enter:'Descend',cancel:'Dismiss',back:'↑ Return above',home:'Origin',help:'Guide',light:'Light',dark:'Dark',address:'A word, a place to go',addressLabel:'Place string',houseDesc:'A sample space with three short articles.',insideDesc:'The roof is open. Each book holds an article.',helpTitle:'From the sky to a book',helpCopy:'Drag to move across a vast curved surface. Scroll or pinch to zoom. Select a house and choose Descend: the camera approaches continuously as its roof fades. Arrow keys pan, + / − zoom and Esc returns. Nearby places are keyboard accessible.',limits:'Visual prototype only: generated terrain and houses, no live users or remote articles. The curved surface has no visible planet edge. Zoom has numeric bounds; exploration keeps a bounded working set. The same place string maps to the same location in this demo.',ghostOn:'Hide simulated visitors',ghostOff:'Show simulated visitors',articleSource:'Sample article · Not imported from a blog',zoomLimit:'Detail limit reached. You can still explore in any direction.',observer:'demo',close:'Close',go:'Go',worldLabel:'Particle world. Drag or use arrow keys to explore. Nearby place buttons provide keyboard access.'}};
+const WORDS={zh:{place:'无界原野',sub:'掠过地表，在某一盏灯旁停下来。',near:'附近的空间',hint:'拖动地表 · 滚轮靠近 · 点击房子下降',inHint:'点击桌上的书阅读 · 返回上空继续漫游',demo:'交互原型 · 房屋 / 访客均为演示',enter:'向下进入',cancel:'取消',back:'↑ 回到上空',home:'归处',help:'玩法',light:'明亮',dark:'深色',address:'输入一个地点，去那里',addressLabel:'地点字符串',houseDesc:'示例空间，有三篇可阅读的短文。',insideDesc:'停在你的庭院里。桌上的书就是文章。',helpTitle:'从上空，到一本书',helpCopy:'拖动像转动脚下的巨大地表，滚轮或双指缩放。点击一间房子，再选择“向下进入”，相机会连续靠近，上层点线淡去。可用方向键漫游、+ / − 缩放、Esc 返回；“附近的空间”也可用键盘选择。',limits:'这是视觉原型：世界按坐标生成，没有真实多人或远端文章。地表没有可见球体边缘；缩放有数值保护，横向探索不会生成无限常驻对象。相同地点字符串在本 Demo 中会回到相同位置。',ghostOn:'隐藏演示访客',ghostOff:'显示演示访客',articleSource:'示例文章 · 非真实博客导入',zoomLimit:'已到当前细节尺度，仍可向任意方向漫游。',observer:'演示',close:'关闭',go:'前往',worldLabel:'可拖动缩放的粒子世界；亦可用方向键漫游，通过附近空间按钮进入房子'},en:{place:'Open terrain',sub:'Glide above the surface. Find a place to stay.',near:'Nearby places',hint:'Drag to explore · Scroll to approach · Select a house',inHint:'Select a book to read · Return above to explore',demo:'Concept demo · Generated houses and simulated visitors',enter:'Descend',cancel:'Dismiss',back:'↑ Return above',home:'Origin',help:'Guide',light:'Light',dark:'Dark',address:'A word, a place to go',addressLabel:'Place string',houseDesc:'A sample space with three short articles.',insideDesc:'A quiet courtyard. Each book holds an article.',helpTitle:'From the sky to a book',helpCopy:'Drag to move across a vast curved surface. Scroll or pinch to zoom. Select a house and choose Descend: the camera approaches continuously as its upper outline fades. Arrow keys pan, + / − zoom and Esc returns. Nearby places are keyboard accessible.',limits:'Visual prototype only: generated terrain and houses, no live users or remote articles. The curved surface has no visible planet edge. Zoom has numeric bounds; exploration keeps a bounded working set. The same place string maps to the same location in this demo.',ghostOn:'Hide simulated visitors',ghostOff:'Show simulated visitors',articleSource:'Sample article · Not imported from a blog',zoomLimit:'Detail limit reached. You can still explore in any direction.',observer:'demo',close:'Close',go:'Go',worldLabel:'Particle world. Drag or use arrow keys to explore. Nearby place buttons provide keyboard access.'}};
 const TITLES={zh:['把一段时间放在这里','关于远方的坐标','有些相遇不需要说话'],en:['A little time, kept here','Coordinates of somewhere else','Being here, together']};
 const PARAS={zh:[['我们习惯把文章放进列表。这一次，试着把它放在桌上。它不必急着告诉所有人，只等一个路过的人停下来。','远处的房子是一个点，靠近后有了墙、书架，还有一页能慢慢读的文字。空间给内容留下了一个可以记住的位置。'],['拖动改变的是你所在的坐标；缩放改变的是你与这个地方的距离。远近之间，房子一直是同一间房子。','这个原型用局部曲面表达巨大世界的感觉。真实产品仍需要有界的数据加载、稳定的空间身份与清楚的权限。'],['别人的指针轻轻经过，停在同一本书旁。我们希望保留这种很轻的在场感。','你现在看到的邻居都是标明来源的演示。真正的相遇，要等实时连接接到同一套世界坐标之后。']],en:[['We usually put writing in a list. Here, a story rests on a desk, waiting for somebody passing by to pause.','A distant house begins as a point. Closer, it becomes walls, shelves, and a page you can take your time with.'],['Dragging changes where you are. Zooming changes your distance from the place. The house stays the same house.','This prototype bends a local surface to suggest a vast world. A real product still needs bounded loading, stable identities, and ownership.'],['A pointer passes quietly and pauses beside the same book. That small sense of another person is what we want to keep.','The visitors here are explicitly simulated. Real presence requires a shared world-coordinate protocol.']]};
 // $ 返回本页必需的元素；固定 ID 缺失属于开发错误，不用可选链掩盖。
@@ -24,9 +35,9 @@ function project(x,y,z=0){const u=(x-camera.x)*camera.zoom,v=(y-camera.y)*camera
 // unproject 将地表屏幕点反解为世界坐标；和 project(z=0) 互逆，保证拖动与缩放锚定。
 function unproject(x,y){const u=x-W*.5,v=(y-H*.53)/.82,q=Math.sqrt(Math.max(.05,1-(u*u+v*v)/(R*R)));return {x:camera.x+u/(camera.zoom*q),y:camera.y+v/(camera.zoom*q)};}
 // applyTheme 只改变 palette/CSS，不改变镜头、房屋身份或重建动画循环。
-function applyTheme(){const effective=state.theme==='system'?(themeMedia.matches?'dark':'light'):state.theme;document.documentElement.dataset.theme=effective;palette=THEMES[effective];$('theme').textContent=WORDS[state.lang][effective==='dark'?'light':'dark'];try{localStorage.setItem('pulse-particle-prefs',JSON.stringify({theme:state.theme,lang:state.lang}));}catch{}}
+function applyTheme(){const effective=state.theme==='system'?(themeMedia.matches?'dark':'light'):state.theme;document.documentElement.dataset.theme=effective;palette=THEMES[effective];paletteVersion++;$('theme').textContent=WORDS[state.lang][effective==='dark'?'light':'dark'];try{localStorage.setItem('pulse-particle-prefs',JSON.stringify({theme:state.theme,lang:state.lang}));}catch{}}
 // resize 让 Canvas 使用 CSS 尺寸并限制 DPR；曲面边界保持在视口之外。
-function resize(){W=innerWidth;H=innerHeight;R=Math.hypot(W,H)*.92;const d=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(W*d);canvas.height=Math.round(H*d);ctx.setTransform(d,0,0,d,0,0);}
+function resize(){W=innerWidth;H=innerHeight;R=Math.hypot(W,H)*.78;const d=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(W*d);canvas.height=Math.round(H*d);ctx.setTransform(d,0,0,d,0,0);}
 // nameOf 为稳定房屋 ID 生成当前语言的示例名称，不把其标成真实作者。
 function nameOf(h){const names=state.lang==='zh'?['你的原点','雨后的书屋','远山来信','风停的地方','一页之间','晚灯','白露','溪边札记']:['Your origin','After the rain','Letters from afar','Still air','Between pages','Evening light','Dew','River notes'];return names[h.name%names.length]+(h.special?'':' '+h.tag);}
 // houseAt 仅由地块坐标生成房屋；命名、位置、朝向不随视野重采样。
@@ -42,51 +53,224 @@ function segment(a,b,color,alpha=.5,width=1){ctx.globalAlpha=alpha;ctx.strokeSty
 // dot 使用小圆点构成地表/结构/交互节点，半径与透明度由调用者控制。
 function dot(p,r,color,alpha=1){ctx.globalAlpha=alpha;ctx.fillStyle=color;ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}
 // dottedEdge 沿房屋边界生成稳定粒子，保证粒子附着物件而非屏幕装饰。
-function dottedEdge(h,a,b,color,alpha,step=5){const n=Math.max(2,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1],(b[2]||0)-(a[2]||0))/step));for(let i=0;i<=n;i++){const k=i/n;dot(hp(h,a[0]+(b[0]-a[0])*k,a[1]+(b[1]-a[1])*k,(a[2]||0)+((b[2]||0)-(a[2]||0))*k),.75,color,alpha);}}
-// drawTerrain 只采样可见局部的两层粒子；LOD 按二次幂交叉淡化，禁止累计整张世界。
-function drawTerrain(now){state.terrainCount=0;const base=2**Math.floor(Math.log2(7/camera.zoom)),f=clamp((7/camera.zoom/base)-1,0,1);drawTerrainLevel(base,1-f*.8,now);drawTerrainLevel(base*2,f*.65,now);drawGraticule(base*12);}
-// drawTerrainLevel 根据世界格点计算确定性粒子，工作量受屏幕分辨率与 LOD 控制。
-function drawTerrainLevel(step,weight,now){if(weight<.03)return;const lo=unproject(-80,-80),hi=unproject(W+80,H+80);const x0=Math.floor(lo.x/step),x1=Math.ceil(hi.x/step),y0=Math.floor(lo.y/step),y1=Math.ceil(hi.y/step);let count=0;for(let gy=y0;gy<=y1;gy++)for(let gx=x0;gx<=x1;gx++){if(++count>22000)return;const rnd=hash(gx,gy,11),x=(gx+.2+hash(gx,gy,12)*.6)*step,y=(gy+.2+hash(gx,gy,13)*.6)*step;const v=terrain(x,y),p=project(x,y);if(p.x<-10||p.x>W+10||p.y<-10||p.y>H+10)continue;const band=Math.pow(Math.max(0,Math.cos(v*24)),16);const land=v>-.12;let a=(land?.16+band*.36:.085+band*.06)*weight;const shimmer=motionMedia.matches?1:.91+.09*Math.sin(now*.0005+rnd*8);a*=shimmer;dot(p,(land?.65:.48)+(rnd>.975?.55:0),land?palette.land:palette.water,a);state.terrainCount++;}}
+function dottedEdge(h, a, b, color, alpha, step = 5) {
+  const n = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], (b[2] || 0) - (a[2] || 0)) / step));
+  ctx.fillStyle = color;
+  ctx.globalAlpha = alpha;
+  for (let i = 0; i <= n; i++) {
+    const k = i / n;
+    const p = hp(h, a[0] + (b[0]-a[0])*k, a[1]+(b[1]-a[1])*k,
+      (a[2]||0)+((b[2]||0)-(a[2]||0))*k);
+    ctx.fillRect(p.x-0.65,p.y-0.65,1.3,1.3);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// drawSceneCached 缓存静态地表和空间；键包含真实相机值，移动时绝不复用旧画面。
+// 只在尺寸变化时分配位图；主题、选中和室内状态都参与失效，实时访客仍每帧单独画。
+function drawSceneCached(now) {
+  const key = [camera.x, camera.y, camera.zoom, W, H, paletteVersion,
+    state.selected?.id, state.inside?.id].join("|");
+  if (!terrainCache) terrainCache = document.createElement("canvas");
+  if (terrainCacheKey !== key) {
+    const d = Math.min(devicePixelRatio || 1, 2);
+    const width = Math.round(W * d), height = Math.round(H * d);
+    if (terrainCache.width !== width || terrainCache.height !== height) {
+      terrainCache.width = width;
+      terrainCache.height = height;
+    }
+    const g = terrainCache.getContext("2d"), previous = ctx;
+    g.setTransform(d, 0, 0, d, 0, 0);
+    ctx = g;
+    // 临时绘图上下文由本函数拥有；即使绘制失败也恢复实时层的主画布。
+    try {
+      g.fillStyle = palette.bg;
+      g.fillRect(0, 0, W, H);
+      drawTerrain(now);
+      state.hits = [];
+      state.bookHits = [];
+      if (camera.zoom < 0.12) drawDistricts();
+      state.houses = visibleHouses();
+      for (const h of state.houses) drawHouse(h, now);
+    } finally { ctx = previous; }
+    terrainCacheKey = key;
+    scenePaints++;
+  }
+  ctx.drawImage(terrainCache, 0, 0, W, H);
+}
+
+// terrainTile 返回确定性世界粒子的有界缓存；位置与地貌只在首次进入地块时计算。
+// key 含采样尺度；LRU 淘汰只丢缓存，不改变同一地点重新生成的结果。
+function terrainTile(step, tx, ty) {
+  const key = step + ":" + tx + ":" + ty;
+  let points = terrainTiles.get(key);
+  if (points) { terrainTiles.delete(key); terrainTiles.set(key, points); return points; }
+  points = [];
+  for (let iy = 0; iy < 16; iy++) for (let ix = 0; ix < 16; ix++) {
+    const gx = tx * 16 + ix, gy = ty * 16 + iy;
+    const x = (gx + 0.2 + hash(gx, gy, 12) * 0.6) * step;
+    const y = (gy + 0.2 + hash(gx, gy, 13) * 0.6) * step;
+    const v = terrain(x, y), land = v > -0.12;
+    const band = Math.pow(Math.max(0, Math.cos(v * 19)), 8);
+    const alpha = land ? 0.29 + band * 0.48 : 0.13 + band * 0.12;
+    const bucket = land ? Math.min(7, Math.floor(alpha * 10)) : 8 + Math.min(3, Math.floor(alpha * 12));
+    points.push(x, y, bucket);
+  }
+  terrainTiles.set(key, points);
+  if (terrainTiles.size > 192) terrainTiles.delete(terrainTiles.keys().next().value);
+  return points;
+}
+
+// drawTerrain 采用相同的移动/静止 LOD，避免松手时点阵忽然换密度。
+// 屏幕面积决定预算，两层交叉淡化；无每粒子 timer，也不为呼吸定时重建整个地表。
+function drawTerrain(now) {
+  const lo = unproject(-20, -20), hi = unproject(W + 20, H + 20);
+  const ideal = Math.max(7 / camera.zoom, 2 * Math.sqrt((hi.x-lo.x)*(hi.y-lo.y) / TUNE.terrainDensity));
+  const base = 2 ** Math.floor(Math.log2(ideal)), f = clamp(ideal / base - 1, 0, 1);
+  state.terrainCount = 0;
+  drawTerrainLevel(base, 1 - f * 0.55, lo, hi);
+  drawTerrainLevel(base * 2, f * 0.7, lo, hi);
+  drawGraticule(base * 6);
+}
+
+// drawTerrainLevel 对已缓存世界点重新投影，按 12 档合并样式；微粒用 fillRect 避免路径细分。
+// 稀疏小方点在此是亚像素粒子；只绘制可见点，数组复用避免逐帧大批对象分配。
+function drawTerrainLevel(step, weight, lo, hi) {
+  if (weight < 0.03) return;
+  for (const bucket of particleBuckets) bucket.length = 0;
+  const size = step * 16, invR2 = 1 / (R * R), z = camera.zoom;
+  const x0 = Math.floor(lo.x / size), x1 = Math.floor(hi.x / size);
+  const y0 = Math.floor(lo.y / size), y1 = Math.floor(hi.y / size);
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+    const points = terrainTile(step, tx, ty);
+    for (let i = 0; i < points.length; i += 3) {
+      const u = (points[i] - camera.x) * z, v = (points[i+1] - camera.y) * z;
+      const q = Math.sqrt(1 + (u*u + v*v) * invR2);
+      const x = W * 0.5 + u/q, y = H * 0.53 + v/q * 0.82;
+      if (x < -2 || x > W+2 || y < -2 || y > H+2) continue;
+      particleBuckets[points[i+2]].push(x,y);
+      state.terrainCount++;
+    }
+  }
+  for (let i = 0; i < particleBuckets.length; i++) {
+    const points = particleBuckets[i];
+    if (!points.length) continue;
+    const size = i < 8 ? 1.35 : 0.85;
+    ctx.fillStyle = i < 8 ? palette.land : palette.water;
+    ctx.globalAlpha = weight * (i < 8 ? (i + 0.5)/10 : (i - 8 + 0.5)/12);
+    for (let j = 0; j < points.length; j += 2) ctx.fillRect(points[j], points[j+1], size, size);
+  }
+  ctx.globalAlpha = 1;
+}
+
 // drawGraticule 用极淡的曲线揭示地表弧度；不是有尽头的网格底板。
 function drawGraticule(step){const lo=unproject(-120,-120),hi=unproject(W+120,H+120);for(let axis=0;axis<2;axis++){const start=Math.floor((axis?lo.y:lo.x)/step),end=Math.ceil((axis?hi.y:hi.x)/step);for(let n=start;n<=end&&n<start+35;n++){ctx.beginPath();for(let k=0;k<=40;k++){const x=axis?lo.x+(hi.x-lo.x)*k/40:n*step,y=axis?n*step:lo.y+(hi.y-lo.y)*k/40,p=project(x,y);if(k===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);}ctx.strokeStyle=palette.contour;ctx.globalAlpha=.08;ctx.lineWidth=.6;ctx.stroke();}}ctx.globalAlpha=1;}
 // visibleHouses 保留当前视野内的确定性房屋；极远尺度改为聚落概览，避免无限枚举。
 function visibleHouses(){const lo=unproject(-100,-100),hi=unproject(W+100,H+100),out=[];if(camera.zoom<.12)return out;const x0=Math.floor(lo.x/560)-1,x1=Math.ceil(hi.x/560)+1,y0=Math.floor(lo.y/560)-1,y1=Math.ceil(hi.y/560)+1;for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const h=houseAt(x,y);if(h){const p=project(h.x,h.y);if(p.x>-130&&p.x<W+130&&p.y>-130&&p.y<H+130)out.push(h);}}if(state.selected&&!out.some(h=>h.id===state.selected.id))out.push(state.selected);return out.sort((a,b)=>a.y-b.y);}
 // drawDistricts 在远景显示可继续靠近的聚落点；层级坐标确定，不生成完整远处建筑。
 function drawDistricts(){const step=560*2**Math.max(1,Math.ceil(Math.log2(.15/camera.zoom)));const lo=unproject(-30,-30),hi=unproject(W+30,H+30);for(let y=Math.floor(lo.y/step);y<=Math.ceil(hi.y/step);y++)for(let x=Math.floor(lo.x/step);x<=Math.ceil(hi.x/step);x++){if(hash(x,y,72)<.56)continue;const wx=(x+.5)*step,wy=(y+.5)*step,p=project(wx,wy);dot(p,1.8,palette.accent,.65);for(let n=0;n<5;n++)dot({x:p.x+(hash(x,y,n+74)-.5)*17,y:p.y+(hash(x,y,n+85)-.5)*12},.75,palette.line,.45);}}
-// drawHouse 从远处粒子节点逐渐显示墙线与室内；屋顶仅随当前降落目标淡出。
-function drawHouse(h,now){const center=project(h.x,h.y),s=center.scale,active=state.selected?.id===h.id;const fade=active?clamp((Math.log(camera.zoom)-Math.log(1.25))/(Math.log(4)-Math.log(1.25)),0,1):0;const a=clamp((s-.14)/.26,0,1);if(s<.34){dot(center,active?3:2,palette.accent,.8);if(active)labelHouse(h,center);state.hits.push({h,x:center.x,y:center.y,r:16});return;}
- const floor=[hp(h,-48,-37),hp(h,48,-37),hp(h,48,37),hp(h,-48,37)];polygon(floor,palette.line,palette.fill,.65*a,.7);
- // 路径与边界粒子帮助房屋落在地表，不使用大面积霓虹光晕。
- for(let i=0;i<10;i++){const p=hp(h,0,42+i*6);dot(p,.8,palette.land,.32*a);}
- const corners=[[-48,-37], [48,-37],[48,37],[-48,37]];for(let i=0;i<4;i++){const c=corners[i],next=corners[(i+1)%4];segment(hp(h,c[0],c[1]),hp(h,c[0],c[1],22),palette.line,.45*a);dottedEdge(h,[c[0],c[1],22],[next[0],next[1],22],palette.line,.65*a);}
- if(fade>.02)drawInterior(h,fade*a);
- const roofA=[hp(h,-52,-41,23),hp(h,52,-41,23),hp(h,52,0,41),hp(h,-52,0,41)];const roofB=[hp(h,-52,0,41),hp(h,52,0,41),hp(h,52,41,23),hp(h,-52,41,23)];polygon(roofA,palette.roof,palette.fill,(1-fade)*a*.95,.7);polygon(roofB,palette.roof,palette.fill,(1-fade)*a*.92,.7);
- for(let x=-48;x<=48;x+=7)for(let y=-35;y<=35;y+=7){const z=41-Math.abs(y)/41*18;dot(hp(h,x,y,z),.65,palette.roof,(1-fade)*a*.72);}
- dottedEdge(h,[-52,0,41],[52,0,41],palette.accent,(1-fade)*a*.7);
- if(active){ctx.setLineDash([2,5]);polygon([hp(h,-57,-45),hp(h,57,-45),hp(h,57,45),hp(h,-57,45)],palette.accent,null,.6,.7);ctx.setLineDash([]);}
- const rect={h,x:center.x,y:center.y-10*s,r:Math.max(16,62*s)};state.hits.push(rect);if(s<2.2||active)labelHouse(h,hp(h,0,50));
+// landingZoom 按窗口计算室内尺度；屋顶淡出终点与下降终点共享它，窄屏也完全打开屋顶。
+function landingZoom(){return clamp(Math.min(W/165,H/153),2.4,7);}
+// spaceOutline 返回三种抽象庭院边界；由稳定名称编号决定，视觉变体不改变空间 ID。
+function spaceOutline(h) {
+  const shapes = [
+    [[-54,-41],[12,-41],[12,-26],[53,-26],[53,42],[-54,42]],
+    [[-54,-41],[53,-41],[53,7],[38,7],[38,42],[-54,42]],
+    [[-54,-28],[-40,-41],[53,-41],[53,42],[-54,42]],
+  ];
+  return shapes[h.name % shapes.length];
 }
-// labelHouse 只给足够清晰的房屋画名称，文字随 locale 更新。
-function labelHouse(h,p){ctx.fillStyle=state.selected?.id===h.id?palette.accent:palette.muted;ctx.font='11px "Segoe UI","Microsoft YaHei",sans-serif';ctx.textAlign='center';ctx.globalAlpha=.9;ctx.fillText(nameOf(h),p.x,p.y+16);ctx.globalAlpha=1;}
-// drawInterior 显示简洁书架、桌面及三篇示例文章；所有物件共享房屋坐标。
-function drawInterior(h,alpha){polygon([hp(h,-40,-28,4),hp(h,40,-28,4),hp(h,40,-21,4),hp(h,-40,-21,4)],palette.line,null,alpha*.75,.8);for(let i=0;i<10;i++){const x=-34+i*7;dottedEdge(h,[x,-26,5],[x,-26,15],palette.paper,alpha*.8,2.5);}
- polygon([hp(h,-30,-2,9),hp(h,29,-2,9),hp(h,29,25,9),hp(h,-30,25,9)],palette.line,palette.fill,alpha,.8);
- for(const [i,x] of [[0,-22],[1,-3],[2,16]]){const points=[hp(h,x,4,10),hp(h,x+10,4,10),hp(h,x+10,18,10),hp(h,x,18,10)];polygon(points,palette.paper,null,alpha,.9);const p=hp(h,x+5,11,10);dot(p,1,palette.accent,alpha);state.bookHits.push({index:i,x:p.x,y:p.y,r:Math.max(15,8*camera.zoom)});}
+
+// spaceRing 在房屋局部平面画庭院圆环；投影点随地表弯曲，不是固定屏幕圆。
+function spaceRing(h, x, y, radius, color, alpha, height = 0) {
+  const points = [];
+  for (let i = 0; i < 24; i++) {
+    const t = i / 24 * Math.PI * 2;
+    points.push(hp(h, x + Math.cos(t) * radius, y + Math.sin(t) * radius, height));
+  }
+  polygon(points, color, null, alpha, 0.7);
 }
+
+// drawHouse 把“房子”表现为粒子围合的个人空间：庭院、书桌、薄隔断与轻薄上层轮廓。
+// 不再画传统山墙屋顶；下降仍以同一世界坐标展开，近处才加入可阅读的物件细节。
+function drawHouse(h, now) {
+  const center = project(h.x, h.y), s = center.scale;
+  const active = state.selected?.id === h.id;
+  const fade = active ? clamp((Math.log(camera.zoom)-Math.log(1.25)) /
+    (Math.log(landingZoom())-Math.log(1.25)), 0, 1) : 0;
+  if (s < 0.3) {
+    dot(center, active ? 3 : 1.8, palette.accent, 0.75);
+    state.hits.push({h,x:center.x,y:center.y,r:16});
+    return;
+  }
+  const a = clamp((s-0.15)/0.25, 0, 1), outline = spaceOutline(h);
+  const floor = [];
+  for (const p of outline) floor.push(hp(h,p[0],p[1]));
+  polygon(floor, null, palette.fill, 0.72*a);
+  const edgeStep = Math.max(2,7/Math.max(1,Math.sqrt(s)));
+  // 边界留出下方入口，以稀疏节点围合；实线只用于能被理解为隔断的局部。
+  for (let i = 0; i < outline.length; i++) {
+    const p=outline[i], q=outline[(i+1)%outline.length];
+    if (p[1]===42 && q[1]===42) {
+      dottedEdge(h,p,[5,42],palette.land,0.8*a,edgeStep);
+      dottedEdge(h,[-13,42],q,palette.land,0.8*a,edgeStep);
+    } else dottedEdge(h,p,q,palette.land,0.8*a,edgeStep);
+  }
+  segment(hp(h,-46,-30),hp(h,-46,22),palette.line,0.4*a,1);
+  segment(hp(h,-46,-30),hp(h,4,-30),palette.line,0.4*a,1);
+  // 圆形庭院与少量种子点作为各空间的留白，避免所有空间都是网格盒子。
+  spaceRing(h,30,14,14,palette.land,0.38*a);
+  dot(hp(h,30,14),1.3,palette.accent,0.9*a);
+  if (s > 0.65) {
+    spaceRing(h,30,14,9,palette.land,0.18*a);
+    for (let i=0;i<5;i++) dot(hp(h,24+i*3,10+(i%2)*6),0.7,palette.land,0.5*a);
+  }
+  drawInterior(h,a*(0.42+fade*0.58));
+  // 轻薄上层只用两条悬浮点线提示高度；接近时散去，保持内部位置连续。
+  if (fade < 0.99) {
+    dottedEdge(h,[-46,-30,13],[4,-30,13],palette.paper,(1-fade)*0.45*a,8);
+    dottedEdge(h,[-46,-30,13],[-46,22,13],palette.paper,(1-fade)*0.3*a,8);
+  }
+  if (active) {
+    for (const p of outline) dot(hp(h,p[0],p[1]),1.5,palette.accent,0.9);
+  }
+  for (let i=0;i<4;i++) dot(hp(h,-4,49+i*6),0.9,palette.land,0.45*a);
+  state.hits.push({h,x:center.x,y:center.y,r:Math.max(16,65*s)});
+}
+
+// drawInterior 书桌/书架与庭院并置；近处显示三本可点击文章，文字阅读仍由 DOM 提供。
+function drawInterior(h, alpha) {
+  const s = project(h.x,h.y).scale;
+  polygon([hp(h,-39,-24,2),hp(h,1,-24,2),hp(h,1,-18,2),hp(h,-39,-18,2)],
+    palette.line,palette.fill,alpha,0.7);
+  polygon([hp(h,-35,0,4),hp(h,6,0,4),hp(h,6,25,4),hp(h,-35,25,4)],
+    palette.line,palette.fill,alpha,0.9);
+  if (s < 0.7) return;
+  for (let i=0;i<5;i++) segment(hp(h,-34+i*7,-24,3),hp(h,-34+i*7,-18,3),palette.paper,alpha*0.6,0.7);
+  for (let i=0;i<3;i++) {
+    const x=-30+i*12;
+    polygon([hp(h,x,7,5),hp(h,x+8,7,5),hp(h,x+8,18,5),hp(h,x,18,5)],
+      palette.paper,null,alpha,0.8);
+    segment(hp(h,x+2,7,5),hp(h,x+2,18,5),palette.accent,alpha*0.6,0.6);
+    const p=hp(h,x+4,12.5,5);
+    if (state.inside?.id === h.id) state.bookHits.push({index:i,x:p.x,y:p.y,r:Math.max(12,6*s)});
+  }
+}
+
 // drawVisitors 用明确标注的两条模拟轨迹表达在场感；不计入真实在线数。
 function drawVisitors(now){if(!state.ghosts)return;const home=state.inside||state.selected||houseAt(0,0);for(let i=0;i<2;i++){const t=motionMedia.matches?i:now*.00025+i*3.1;const p=project(home.x+Math.cos(t)*(state.inside?22:135),home.y+Math.sin(t*.8)*(state.inside?18:80));ctx.strokeStyle=i?palette.land:palette.accent;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+4,p.y+11);ctx.lineTo(p.x+7,p.y+6);ctx.lineTo(p.x+12,p.y+5);ctx.closePath();ctx.stroke();ctx.font='10px "Segoe UI","Microsoft YaHei",sans-serif';ctx.textAlign='left';ctx.fillStyle=palette.muted;ctx.fillText((i?'Nori':'Lin')+' · '+WORDS[state.lang].observer,p.x+15,p.y+12);}}
 // render 是唯一 rAF 入口，隐藏页面时暂停；帧间 dt 有上限，避免切页后大幅跳动。
-function render(now){state.raf=0;if(!state.visible)return;const start=performance.now(),dt=Math.min(40,now-(state.lastTime||now));state.lastTime=now;advance(now,dt);ctx.fillStyle=palette.bg;ctx.fillRect(0,0,W,H);drawTerrain(now);state.hits=[];state.bookHits=[];if(camera.zoom<.12)drawDistricts();state.houses=visibleHouses();for(const h of state.houses)drawHouse(h,now);drawVisitors(now);if(now-uiTime>180){updateReadout();uiTime=now;}state.tick++;state.frameMs=performance.now()-start;state.raf=requestAnimationFrame(render);}
+function render(now){state.raf=0;if(!state.visible)return;const start=performance.now(),dt=Math.min(40,now-(state.lastTime||now));state.lastTime=now;advance(now,dt);drawSceneCached(now);drawVisitors(now);if(now-uiTime>180){updateReadout();uiTime=now;}state.tick++;state.frameMs=performance.now()-start;state.raf=requestAnimationFrame(render);}
 // advance 更新可中断的镜头飞行与惯性；飞行使用对数尺度保证连续的下降感。
-function advance(now,dt){if(state.flight){const f=state.flight,k=clamp((now-f.at)/f.ms,0,1),e=k*k*(3-2*k);camera.x=f.from.x+(f.to.x-f.from.x)*e;camera.y=f.from.y+(f.to.y-f.from.y)*e;camera.zoom=Math.exp(Math.log(f.from.zoom)+(Math.log(f.to.zoom)-Math.log(f.from.zoom))*e);if(k===1){state.flight=null;if(f.onDone)f.onDone();}return;}if(!state.gesture&&!motionMedia.matches){camera.x+=state.velocity.x*dt;camera.y+=state.velocity.y*dt;const decay=Math.exp(-dt/150);state.velocity.x*=decay;state.velocity.y*=decay;}}
+function advance(now,dt){if(state.flight){const f=state.flight,k=clamp((now-f.at)/f.ms,0,1),e=k*k*(3-2*k);camera.x=f.from.x+(f.to.x-f.from.x)*e;camera.y=f.from.y+(f.to.y-f.from.y)*e;camera.zoom=Math.exp(Math.log(f.from.zoom)+(Math.log(f.to.zoom)-Math.log(f.from.zoom))*e);if(k===1){state.flight=null;if(f.onDone)f.onDone();}return;}if(!state.gesture&&!motionMedia.matches){camera.x+=state.velocity.x*dt;camera.y+=state.velocity.y*dt;const decay=Math.exp(-dt/150);state.velocity.x*=decay;state.velocity.y*=decay;if(Math.hypot(state.velocity.x,state.velocity.y)*camera.zoom<.0005)state.velocity={x:0,y:0};}}
 // fly 从当前显示值开始飞行；再次输入替换旧目标，没有排队和输入锁。
 function fly(to,done,ms=1500){state.velocity={x:0,y:0};state.flight={from:{...camera},to,at:performance.now(),ms:motionMedia.matches?1:ms,onDone:done};}
 // selectHouse 打开房屋操作面板，只改变选中状态，不立刻跳转到室内。
 function selectHouse(h){state.selected=h;$('selection').hidden=false;updateSelection();}
 // updateSelection 刷新当前房屋的动作与文章入口，按真实演示状态显示。
-function updateSelection(){if(!state.selected)return;const w=WORDS[state.lang];$('house-name').textContent=nameOf(state.selected);$('house-desc').textContent=state.inside?w.insideDesc:w.houseDesc;$('enter').hidden=!!state.inside;$('dismiss').hidden=!!state.inside;$('books').hidden=!state.inside;$('books').replaceChildren();if(state.inside)for(let i=0;i<3;i++){const b=document.createElement('button');b.textContent=TITLES[state.lang][i];b.addEventListener('click',()=>openArticle(i));$('books').appendChild(b);}}
+function updateSelection(){document.body.dataset.inside=String(!!state.inside);if(!state.selected)return;const w=WORDS[state.lang];$('house-name').textContent=nameOf(state.selected);$('house-desc').textContent=state.inside?w.insideDesc:w.houseDesc;$('enter').hidden=!!state.inside;$('dismiss').hidden=!!state.inside;$('books').hidden=!state.inside;$('books').replaceChildren();if(state.inside)for(let i=0;i<3;i++){const b=document.createElement('button');b.textContent=TITLES[state.lang][i];b.addEventListener('click',()=>openArticle(i));$('books').appendChild(b);}}
 // enterHouse 记录上空位置并连续下降；屋顶透明度由当前镜头尺度驱动。
-function enterHouse(){if(!state.selected)return;state.returnView={...camera};const h=state.selected,z=clamp(Math.min(W/165,H/153),2.4,7);$('nearby').hidden=true;fly({x:h.x,y:h.y,zoom:z},()=>{state.inside=h;updateText();},1700);$('back').hidden=false;}
+function enterHouse(){if(!state.selected)return;state.returnView={...camera};const h=state.selected,z=landingZoom();$('nearby').hidden=true;fly({x:h.x,y:h.y,zoom:z},()=>{state.inside=h;updateText();},1700);$('back').hidden=false;}
 // returnAbove 回到进入前的视野；可以打断尚未完成的下降。
 function returnAbove(){if(!state.returnView)return;const dest=state.returnView;state.inside=null;state.returnView=null;$('selection').hidden=true;$('back').hidden=true;$('nearby').hidden=false;fly(dest,()=>{state.selected=null;updateText();},1350);updateText();}
 // openArticle 使用真实 DOM 和示例文章，不把正文画在 Canvas 上。
@@ -106,7 +290,7 @@ canvas.addEventListener('pointerdown',e=>{if(e.button!==0)return;stopFlight();ca
 // pointermove 使用同一逆投影处理拖动和双指锚定；不创建新的 timer 或 rAF。
 canvas.addEventListener('pointermove',e=>{if(!state.pointers.has(e.pointerId))return;state.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});const p=[...state.pointers.values()],g=state.gesture;if(!g)return;if(p.length>=2){const mid={x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2};camera.zoom=clamp(g.zoom*Math.hypot(p[1].x-p[0].x,p[1].y-p[0].y)/Math.max(1,g.distance),.025,14);panAnchor(g.anchor,mid);}else{const now=performance.now(),oldX=camera.x,oldY=camera.y;panAnchor(g.anchor,p[0]);const dt=Math.max(8,now-g.last);state.velocity={x:(camera.x-oldX)/dt,y:(camera.y-oldY)/dt};g.last=now;g.moved ||= Math.hypot(p[0].x-g.start.x,p[0].y-g.start.y)>5;}});
 // endPointer 区分点击与拖拽；取消手势不选中房屋，旧速度不会污染下一次拖动。
-function endPointer(e,cancelled=false){const g=state.gesture,click=!cancelled&&g&&!g.pinch&&!g.moved;state.pointers.delete(e.pointerId);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(click)pick(e.clientX,e.clientY);if(cancelled||click||g?.pinch)state.velocity={x:0,y:0};if(state.pointers.size)startGesture();else{state.gesture=null;canvas.classList.remove('drag');}}
+function endPointer(e,cancelled=false){const g=state.gesture,click=!cancelled&&g&&!g.pinch&&!g.moved;state.pointers.delete(e.pointerId);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(click)pick(e.clientX,e.clientY);if(cancelled||click||g?.pinch)state.velocity={x:0,y:0};if(state.pointers.size){startGesture();state.gesture.moved=true;}else{state.gesture=null;canvas.classList.remove('drag');}}
 // 指针正常放开与系统取消共用清理入口，避免粘住拖动状态。
 canvas.addEventListener('pointerup',e=>endPointer(e));canvas.addEventListener('pointercancel',e=>endPointer(e,true));
 // pick 先命中已打开房屋的书，再命中房屋；远景空地点击不强迫跳转。
@@ -118,11 +302,14 @@ function goToOrigin(){state.inside=null;state.selected=null;state.returnView=nul
 // updateReadout 显示世界坐标与尺度，避免将演示单位误写成真实地理公里数。
 function updateReadout(){const format=new Intl.NumberFormat(state.lang==='zh'?'zh-CN':'en-US',{maximumFractionDigits:0});$('coordinates').textContent='x '+format.format(camera.x)+'   /   y '+format.format(camera.y);$('zoom-label').textContent=(camera.zoom/.66).toFixed(camera.zoom<1?1:0)+'×';}
 // updateText 全面刷新静态与动态界面，翻译开关不修改文章身份或房屋位置。
-function updateText(){const w=WORDS[state.lang];document.documentElement.lang=state.lang==='zh'?'zh-CN':'en';document.title=state.lang==='zh'?'PULSE · 粒子地表漫游':'PULSE · Particle world';$('place').textContent=state.inside?nameOf(state.inside):w.place;$('sub').textContent=state.inside?w.insideDesc:w.sub;$('hint').textContent=state.inside?w.inHint:w.hint;for(const [id,key] of [['near-label','near'],['demo-label','demo'],['enter','enter'],['dismiss','cancel'],['back','back'],['origin','home'],['help','help'],['help-title','helpTitle'],['help-copy','helpCopy'],['limit-copy','limits'],['article-source','articleSource']])$(id).textContent=w[key];$('address').placeholder=w.address;$('address').setAttribute('aria-label',w.addressLabel);$('go').setAttribute('aria-label',w.go);canvas.setAttribute('aria-label',w.worldLabel);$('plus').setAttribute('aria-label',state.lang==='zh'?'放大':'Zoom in');$('minus').setAttribute('aria-label',state.lang==='zh'?'缩小':'Zoom out');$('nearby').setAttribute('aria-label',w.near);document.querySelectorAll('[data-close]').forEach(el=>el.setAttribute('aria-label',w.close));$('locale').textContent=state.lang==='zh'?'EN':'中文';$('ghosts').textContent=state.ghosts?w.ghostOn:w.ghostOff;const fixed=[houseAt(0,0),houseAt(1,0),houseAt(-1,1)];document.querySelectorAll('[data-near]').forEach((el,i)=>{el.textContent=nameOf(fixed[i]);});updateSelection();applyTheme();updateReadout();if($('reader').open)openArticle(Number($('reader').dataset.article));}
+function updateText(){const w=WORDS[state.lang];document.documentElement.lang=state.lang==='zh'?'zh-CN':'en';document.title=state.lang==='zh'?'PULSE · 粒子地表漫游':'PULSE · Particle world';$('place').textContent=state.inside?nameOf(state.inside):w.place;$('sub').textContent=state.inside?w.insideDesc:w.sub;$('hint').textContent=state.inside?w.inHint:w.hint;for(const [id,key] of [['near-label','near'],['demo-label','demo'],['enter','enter'],['dismiss','cancel'],['back','back'],['origin','home'],['help','help'],['help-title','helpTitle'],['help-copy','helpCopy'],['limit-copy','limits'],['article-source','articleSource']])$(id).textContent=w[key];$('address').placeholder=w.address;$('address').setAttribute('aria-label',w.addressLabel);$('go').setAttribute('aria-label',w.go);canvas.setAttribute('aria-label',w.worldLabel);$('plus').setAttribute('aria-label',state.lang==='zh'?'放大':'Zoom in');$('minus').setAttribute('aria-label',state.lang==='zh'?'缩小':'Zoom out');$('nearby').setAttribute('aria-label',w.near);document.querySelectorAll('[data-close]').forEach(el=>el.setAttribute('aria-label',w.close));$('locale').textContent=state.lang==='zh'?'EN':'中文';$('ghosts').textContent=state.ghosts?w.ghostOn:w.ghostOff;$('system-theme').textContent=state.lang==='zh'?'明暗跟随系统':'Follow system theme';const fixed=[houseAt(0,0),houseAt(1,0),houseAt(-1,1)];document.querySelectorAll('[data-near]').forEach((el,i)=>{el.textContent=nameOf(fixed[i]);});updateSelection();applyTheme();updateReadout();if($('reader').open)openArticle(Number($('reader').dataset.article));}
 // 地点表单使用完整字符串的稳定散列落在世界中；不是权限、真实地址或共享数据。
 $('address-form').addEventListener('submit',e=>{e.preventDefault();const value=$('address').value.trim().normalize('NFC');if(!value)return;let h=2166136261;for(const char of value)h=Math.imul(h^char.codePointAt(0),16777619);const x=((h>>>0)%10001-5000)*560,y=((Math.imul(h,2246822519)>>>0)%10001-5000)*560;state.inside=null;state.selected=null;state.returnView=null;$('selection').hidden=true;$('back').hidden=true;$('nearby').hidden=false;fly({x,y,zoom:.5},()=>{updateText();$('place').textContent=value;},motionMedia.matches?1:1400);});
 // 常驻控件只绑定一次；主题、语言等设置不会触发 socket 或渲染循环重建。
 $('theme').addEventListener('click',()=>{state.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';applyTheme();});
+// 恢复系统模式，不清除语言或镜头偏好；后续系统变化由 themeMedia 监听。
+$('system-theme').addEventListener('click',()=>{state.theme='system';applyTheme();});
+// 切换界面语言，同步静态文本和可访问名称。
 $('locale').addEventListener('click',()=>{state.lang=state.lang==='zh'?'en':'zh';updateText();});
 $('help').addEventListener('click',()=>{$('help-dialog').showModal();});
 $('ghosts').addEventListener('click',()=>{state.ghosts=!state.ghosts;updateText();});
