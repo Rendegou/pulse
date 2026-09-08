@@ -1,41 +1,53 @@
 /* tokens.css — 主题语义变量：一套语义，明暗两套光环境。
-   候选色来自粒子地表 Demo 的实测调色板；Canvas 调色板也从这里读取（换题时缓存一次）。 */
+   数值取自潮汐群岛视觉稿（outputs/pulse-tidal-islands.html）；世界层调色板也从这里读。
+   带 -rgb 后缀的是 [r,g,b] 三通道，供 Canvas 合成透明度使用。 */
 
 :root {
   color-scheme: light;
-  --bg: #eef2ec;
-  --ink: #283f41;
-  --muted: #58716e;
-  --line: #b8c8bf;
-  --panel: #f6f8f0ee;
-  --accent: #805734;
+  --bg: #e5eee8;
+  --ink: #284640;
+  --muted: #627e75;
+  --line: #4c776137;
+  --gold: #80673e;
+  --panel: #eff4ecef;
   --focus: #237761;
 
-  /* 世界（地表/房屋/粒子） */
-  --world-land: #628575;
-  --world-water: #bac8c0;
-  --world-contour: #91a998;
-  --world-line: #456559;
-  --world-fill: #e5ece1;
-  --world-roof: #5b7e6a;
-  --world-paper: #3d6459;
+  /* 纸面与阅读层 */
+  --paper: #f7f5ea;
+  --paper-ink: #294440;
+  --shadow: #acc7bb;
+
+  /* 世界：海 / 浪沫 / 岸 / 地表 / 等高线 / 岛体底色 */
+  --world-sea-rgb: 71, 125, 125;
+  --world-foam-rgb: 99, 145, 131;
+  --world-shore-rgb: 120, 105, 67;
+  --world-land-rgb: 78, 129, 106;
+  --world-contour-rgb: 54, 110, 93;
+  --world-solid: #d1e0cc;
+  --world-paper: #faf5df;
+  --world-ink: #527359;
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #101b20;
-  --ink: #e0ece7;
-  --muted: #90a7a4;
-  --line: #34484a;
-  --panel: #142328ee;
-  --accent: #d7b38c;
+  --bg: #091c20;
+  --ink: #dce9e3;
+  --muted: #839c98;
+  --line: #78938a38;
+  --gold: #ddbc87;
+  --panel: #10272bef;
   --focus: #9ed3c0;
 
-  --world-land: #95b9ad;
-  --world-water: #496972;
-  --world-contour: #698d80;
-  --world-line: #a8c5b6;
-  --world-fill: #14262a;
-  --world-roof: #88afa0;
-  --world-paper: #c4d8c7;
+  --paper: #edf0e5;
+  --paper-ink: #294440;
+  --shadow: #020e13;
+
+  --world-sea-rgb: 85, 139, 145;
+  --world-foam-rgb: 158, 204, 195;
+  --world-shore-rgb: 208, 194, 153;
+  --world-land-rgb: 125, 166, 151;
+  --world-contour-rgb: 112, 171, 154;
+  --world-solid: #102b2c;
+  --world-paper: #cbd9bd;
+  --world-ink: #385c52;
 }

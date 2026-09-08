@@ -1,27 +1,46 @@
 // articles.js — 示例文章内容（双语 fixture）。
 // 这些是演示文本，明确标注为示例，不是真实博客导入；接入真实文章时替换数据源。
+// 索引与 islands.js 的 island.article 一一对应：0=你的原点，1=雨后手记，2=远山来信。
 
 export const ARTICLES = {
   "zh-CN": {
-    titles: ["把一段时间放在这里", "关于远方的坐标", "有些相遇不需要说话"],
+    titles: ["把一段时间放在这里", "潮水退去之后", "有些相遇，不需要说话"],
     paras: [
-      ["我们习惯把文章放进列表。这一次，试着把它放在桌上。它不必急着告诉所有人，只等一个路过的人停下来。",
-       "远处的房子是一个点，靠近后有了墙、书架，还有一页能慢慢读的文字。空间给内容留下了一个可以记住的位置。"],
-      ["拖动改变的是你所在的坐标；缩放改变的是你与这个地方的距离。远近之间，房子一直是同一间房子。",
-       "这个原型用局部曲面表达巨大世界的感觉。真实产品仍需要有界的数据加载、稳定的空间身份与清楚的权限。"],
-      ["别人的指针轻轻经过，停在同一本书旁。我们希望保留这种很轻的在场感。",
-       "你现在看到的邻居都是标明来源的演示。真正的相遇，要等实时连接接到同一套世界坐标之后。"],
+      [
+        "今天没有发生什么值得郑重记录的大事。窗外下了一会儿雨，杯子里的茶凉了，读到一段喜欢的话，又翻回去看了一遍。",
+        "但我还是想把这段时间放在这里。像在海边捡到一块形状普通的石头，因为当时握在手里的温度，决定带它回家。",
+        "也许很多年以后，留下来的并不是某个答案，而是一个很轻的下午。",
+      ],
+      [
+        "潮水退去以后，岸边的纹路才慢慢显出来。细沙上有蜿蜒的线，浅水里留下小小的涡流。原来平静的表面，也记得经过它的东西。",
+        "我想做一个这样的地方。远看安静，走近了，能发现有人在这里停留过。",
+        "文章可以短一点，更新可以慢一点。重要的是，那些真正想留下的东西，能有自己的位置。",
+      ],
+      [
+        "有时候，只是知道有人也在，就很好。",
+        "不一定要立刻打招呼。你沿着岸线走，我在这边读一页书。光标从旁边经过，像一阵有方向的风。",
+        "等想说话的时候，再说也来得及。这个地方很大，我们可以慢慢认识。",
+      ],
     ],
   },
   en: {
-    titles: ["A little time, kept here", "Coordinates of somewhere else", "Being here, together"],
+    titles: ["A little time, kept here", "After the tide goes out", "Being here, together"],
     paras: [
-      ["We usually put writing in a list. Here, a story rests on a desk, waiting for somebody passing by to pause.",
-       "A distant house begins as a point. Closer, it becomes walls, shelves, and a page you can take your time with."],
-      ["Dragging changes where you are. Zooming changes your distance from the place. The house stays the same house.",
-       "This prototype bends a local surface to suggest a vast world. A real product still needs bounded loading, stable identities, and ownership."],
-      ["A pointer passes quietly and pauses beside the same book. That small sense of another person is what we want to keep.",
-       "The visitors here are explicitly simulated. Real presence requires a shared world-coordinate protocol."],
+      [
+        "Nothing worth recording properly happened today. Rain passed the window for a while, the tea went cold, and I read a line I liked, then turned back and read it again.",
+        "Still, I want to keep this stretch of time here. Like a stone picked up on a beach for no special reason, carried home because of how warm it felt in my hand.",
+        "Maybe what stays, years later, is not an answer but a very light afternoon.",
+      ],
+      [
+        "When the tide goes out, the patterns on the shore slowly appear. Winding lines in wet sand, small eddies left in shallow water. Even a calm surface remembers what passed over it.",
+        "I want to make a place like that. Quiet from a distance, and close up you can tell someone paused here.",
+        "Stories can be short and updates can be slow. What matters is that the things worth keeping have a place of their own.",
+      ],
+      [
+        "Sometimes it is enough to know someone else is around.",
+        "You don't have to say hello right away. You walk along the shoreline; I read a page over here. A cursor passes by like wind with a direction.",
+        "There will be time to talk when you want to. This place is large, and we can get to know it slowly.",
+      ],
     ],
   },
 };

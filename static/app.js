@@ -1,12 +1,12 @@
 "use strict";
 
-/* PULSE 产品前端 · 装配层。
+/* PULSE 产品前端 · 装配层（潮汐群岛）。
  *
  * 职责：WebSocket 连接、真实访客数据、偏好/i18n、HUD 控件、阅读页、诊断抽屉。
- * 世界渲染和输入手势在 world.js；纯计算在 pure.js；文案在 i18n.js。
+ * 世界渲染与输入手势在 world.js；岛屿数据在 islands.js；纯计算在 pure.js；文案在 i18n.js。
  *
- * 数据真实性：访客/脉冲来自真实 /ws 连接（v2 世界坐标）；
- * 房屋和文章是明确标注的示例；fixture 主机事件只出现在诊断抽屉。
+ * 数据真实性：访客/脉冲来自真实 /ws 连接（v3 世界坐标 + 服务端判定的岛归属）；
+ * 岛屿、文章是明确标注的示例；fixture 主机事件只出现在诊断抽屉。
  */
 
 import {
@@ -25,13 +25,14 @@ import {
 } from "./preferences.js";
 import { t, tArr } from "./i18n.js";
 import * as world from "./world.js";
+import { ISLANDS } from "./islands.js";
 import { ARTICLES } from "./articles.js";
 
 const $ = (id) => document.getElementById(id);
 
 // ---------- 状态 ----------
 
-// sessions 是在线连接表：id -> {id, x, y（世界坐标，最后已知）, buf, bornAt, deadAt, playing}
+// sessions 是在线连接表：id -> {id, island, wx, wy, buf, bornAt, deadAt, playing}
 const state = { you: null, sessions: new Map() };
 
 // pulses 是活动中的脉冲效果（世界坐标）：{wx, wy, bornAt, mine}，600ms 生命，最多 64 个。
@@ -40,8 +41,8 @@ const seenPulses = new Set();
 const seenHost = new Set();
 let pulseSeq = 0;
 
-// pending 记录自己最近一次指针的世界坐标；dirty 表示有未发送的新位置。
-const pending = { x: 0, y: 0, dirty: false };
+// pending 记录自己最近一次指针的世界坐标与所在岛；dirty 表示有未发送的新位置。
+const pending = { x: 0, y: 0, island: "", dirty: false };
 
 // hostTimes/portTimes 记录主机事件到达时刻，速率是客户端自己数的实测值。
 const hostTimes = [];
@@ -53,20 +54,23 @@ const feedRecords = [];
 // ---------- 偏好 → 世界调色板 ----------
 
 // refreshPalette 从 CSS 变量读一次主题颜色并注入世界引擎（不逐帧读）。
+// 带 -rgb 的变量拆成 [r,g,b] 数组：Canvas 需要自己合成透明度。
 function refreshPalette() {
   const cs = getComputedStyle(document.documentElement);
   const get = (k) => cs.getPropertyValue(k).trim();
+  const rgb = (k) => get(k).split(",").map((n) => Number(n.trim()));
   world.setPalette({
     bg: get("--bg"),
-    land: get("--world-land"),
-    water: get("--world-water"),
-    contour: get("--world-contour"),
-    line: get("--world-line"),
-    fill: get("--world-fill"),
-    roof: get("--world-roof"),
-    accent: get("--accent"),
+    sea: rgb("--world-sea-rgb"),
+    foam: rgb("--world-foam-rgb"),
+    shore: rgb("--world-shore-rgb"),
+    land: rgb("--world-land-rgb"),
+    contour: rgb("--world-contour-rgb"),
+    solid: get("--world-solid"),
     paper: get("--world-paper"),
-    muted: get("--muted"),
+    ink: get("--world-ink"),
+    gold: get("--gold"),
+    shadow: get("--shadow"),
   });
 }
 
@@ -80,32 +84,27 @@ onPreferenceChange(() => {
 
 // ---------- 界面文案 ----------
 
-// nameOf 取示例房屋的当前语言名称（命名稳定，不随视野重采样）。
-function nameOf(h) {
-  const names = tArr(getPrefs().lang, "houseNames");
-  return names[h.name % names.length] + (h.special ? "" : " " + h.tag);
-}
-
-// updateText 全面刷新静态与动态界面；切换语言不改文章身份或房屋位置。
+// updateText 全面刷新静态与动态界面；切换语言不改文章身份或岛的位置。
 function updateText() {
   const lang = getPrefs().lang;
-  const inside = world.getInside();
-  const selected = world.getSelected();
+  // 同步画布纸页上的预览文字；语言变化让陆地层失效，但不改变文章身份。
+  world.setPublicationText({
+    lang,
+    titles: ARTICLES[lang].titles,
+    summaries: ARTICLES[lang].paras.map((paragraphs) => paragraphs[0]),
+    readLabel: t(lang, "read"),
+  });
 
   document.documentElement.lang = lang;
-  document.title = t(lang, "spaceName") + " · PULSE";
-  $("place").textContent = inside ? nameOf(inside) : t(lang, "place");
-  $("sub").textContent = inside ? t(lang, "insideDesc") : t(lang, "sub");
-  $("hint").textContent = inside ? t(lang, "inHint") : t(lang, "hint");
-  $("near-label").textContent = t(lang, "near");
-  $("demo-label").textContent = t(lang, "demo");
-  $("enter").textContent = t(lang, "enter");
-  $("dismiss").textContent = t(lang, "cancel");
-  $("back").textContent = t(lang, "back");
-  $("origin").textContent = t(lang, "home");
+  document.title = "PULSE · " + t(lang, "edition");
+  $("edition").textContent = t(lang, "edition");
+  $("eyebrow").textContent = t(lang, "eyebrow");
+  $("headline").textContent = t(lang, "headline");
+  $("description").textContent = t(lang, "description");
+  $("nearby-title").textContent = t(lang, "nearby");
+  $("fixture").textContent = t(lang, "demo");
   $("help").textContent = t(lang, "help");
   $("help-title").textContent = t(lang, "helpTitle");
-  $("help-copy").textContent = t(lang, "helpCopy");
   $("limit-copy").textContent = t(lang, "limits");
   $("article-source").textContent = t(lang, "articleSource");
   $("status-btn").textContent = t(lang, "statusOpen");
@@ -115,15 +114,24 @@ function updateText() {
   $("locale").textContent = lang === "zh-CN" ? "EN" : "中文";
   $("feed-title").textContent = t(lang, "feedTitle");
   $("ports-title").textContent = t(lang, "portsLive");
-  canvas.setAttribute("aria-label", t(lang, "worldLabel"));
+  $("origin").textContent = t(lang, "home");
+  $("minus").setAttribute("aria-label", t(lang, "zoomOut"));
+  $("plus").setAttribute("aria-label", t(lang, "zoomIn"));
+  $("land").setAttribute("aria-label", t(lang, "worldLabel"));
+  $("ws-label").textContent = connectionLabel();
 
-  // 附近空间三个示例入口
-  const fixed = [world.houseById("origin"), world.houseById("rain"), world.houseById("letter")];
-  document.querySelectorAll("[data-near]").forEach((el, i) => {
-    el.textContent = fixed[i] ? nameOf(fixed[i]) : "";
-  });
+  // 帮助文本按段落渲染，避免拼 HTML
+  const copy = $("help-copy");
+  copy.replaceChildren();
+  for (const paragraph of tArr(lang, "helpCopy")) {
+    const p = document.createElement("p");
+    p.textContent = paragraph;
+    copy.appendChild(p);
+  }
 
-  updateSelection();
+  renderNearby();
+  renderMobileArticles();
+  updateModeText();
   updateReadout();
   renderFeed();
   // 阅读页开着时按新语言重开（保留滚动位置）
@@ -135,57 +143,103 @@ function updateText() {
   }
 }
 
-// themeButtonLabel 显示当前主题偏好（system/light/dark → 下一目标文字）。
+// themeButtonLabel 显示当前主题偏好（system/light/dark → 对应文案）。
 function themeButtonLabel() {
-  const lang = getPrefs().lang;
   const key = { system: "themeSystem", light: "themeLight", dark: "themeDark" }[getPrefs().theme];
-  return t(lang, key);
+  return t(getPrefs().lang, key);
 }
 
-// ---------- 选择面板与阅读 ----------
-
-// updateSelection 刷新房屋面板：探索态（进入/取消）与室内态（书列表）分开。
-function updateSelection() {
+// connectionLabel 按连接状态返回顶栏文字；未连接时显示“连接中”。
+function connectionLabel() {
   const lang = getPrefs().lang;
-  const selected = world.getSelected();
-  const inside = world.getInside();
-  const h = inside || selected;
-  document.body.dataset.inside = String(!!inside);
-  if (!h) {
-    $("selection").hidden = true;
-    return;
-  }
-  $("selection").hidden = false;
-  $("house-name").textContent = nameOf(h);
-  $("house-desc").textContent = inside ? t(lang, "insideDesc") : t(lang, "houseDesc");
-  $("enter").hidden = !!inside;
-  $("dismiss").hidden = !!inside;
-  $("books").hidden = !inside;
-  $("books").replaceChildren();
-  if (inside) {
-    ARTICLES[lang].titles.forEach((title, i) => {
-      const b = document.createElement("button");
-      b.textContent = title;
-      b.addEventListener("click", () => openArticle(i));
-      $("books").appendChild(b);
-    });
-  }
+  if (!ws) return t(lang, "connecting");
+  if (ws.readyState === WebSocket.OPEN) return t(lang, "connected");
+  if (ws.readyState === WebSocket.CONNECTING) return t(lang, "connecting");
+  return t(lang, "reconnecting");
 }
 
-// openArticle 使用真实 DOM 和示例文章，不把正文画在 Canvas 上。
+// updateModeText 根据“靠近/远景”切换左侧标题、说明、入口与提示文字。
+// 只改文字与类名，不重建场景；岛名来自 i18n，与 islands.js 的索引一一对应。
+function updateModeText() {
+  const lang = getPrefs().lang;
+  const near = world.getNearState();
+  const names = tArr(lang, "islandNames");
+  const selected = world.getSelected();
+  document.body.classList.toggle("near", near);
+  $("headline").textContent = near ? names[selected] : t(lang, "headline");
+  $("description").textContent = near ? t(lang, "nearDesc") : t(lang, "description");
+  $("approach-text").textContent = near ? t(lang, "back") : t(lang, "approach");
+  $("hint").textContent = near ? t(lang, "nearHint") : t(lang, "hint");
+  // 岛标签副标题显示规模提示（示例内容）
+  document.querySelectorAll(".island-label .sub").forEach((el) => {
+    el.textContent = t(lang, "articles");
+  });
+}
+
+// renderNearby 重建“海的另一边”列表：三座示例岛的等价键盘入口。
+function renderNearby() {
+  const lang = getPrefs().lang;
+  const names = tArr(lang, "islandNames");
+  const host = $("nearby");
+  host.querySelectorAll("button").forEach((el) => el.remove());
+  ISLANDS.forEach((isl, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.island = isl.id;
+    b.classList.toggle("current", i === world.getSelected());
+    const name = document.createElement("span");
+    name.textContent = names[i] || isl.id;
+    const arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.textContent = "↗";
+    b.append(name, arrow);
+    // 点列表 = 选中并靠近这座岛（与画布上点岛等价）
+    b.addEventListener("click", () => {
+      world.selectIsland(i);
+      world.approach(i);
+    });
+    host.appendChild(b);
+  });
+}
+
+// renderMobileArticles 重建窄屏底部的文章入口（与点击纸页等价）。
+function renderMobileArticles() {
+  const lang = getPrefs().lang;
+  const host = $("mobile-articles");
+  host.replaceChildren();
+  ARTICLES[lang].titles.forEach((title, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = title;
+    b.addEventListener("click", () => openArticle(i));
+    host.appendChild(b);
+  });
+}
+
+// ---------- 阅读 ----------
+
+// openArticle 使用真实 DOM 与示例文章，不把正文画在 Canvas 上。
+// i 越界时回退到第一篇；同时更新“下一篇”与阅读页元信息，保证标签与正文指向同一篇。
 let originFocus = null;
 function openArticle(i) {
   const lang = getPrefs().lang;
   originFocus = document.activeElement;
-  $("article-title").textContent = ARTICLES[lang].titles[i];
+  const count = ARTICLES[lang].titles.length;
+  const index = Number.isInteger(i) && i >= 0 && i < count ? i : 0;
+  $("article-meta").textContent =
+    `${t(lang, "sample")} / ${tArr(lang, "articleTags")[index] || ""} / 2 ${t(lang, "minutes")}`;
+  $("article-title").textContent = ARTICLES[lang].titles[index];
   const body = $("article-body");
   body.replaceChildren();
-  for (const p of ARTICLES[lang].paras[i]) {
+  for (const p of ARTICLES[lang].paras[index]) {
     const el = document.createElement("p");
     el.textContent = p;
     body.appendChild(el);
   }
-  $("reader").dataset.article = String(i);
+  $("reader-end").textContent = t(lang, "end");
+  const nextIndex = (index + 1) % count;
+  $("next-article").textContent = `${t(lang, "next")}：${ARTICLES[lang].titles[nextIndex]} ↗`;
+  $("reader").dataset.article = String(index);
   if (!$("reader").open) $("reader").showModal();
 }
 
@@ -201,12 +255,11 @@ function connect() {
   const sock = new WebSocket(`${proto}://${location.host}/ws`);
   ws = sock;
   const dot = $("ws-dot");
-  const label = $("ws-label");
 
   ws.onopen = () => {
     retry = 0;
     dot.classList.add("on");
-    label.textContent = t(getPrefs().lang, "connected");
+    $("ws-label").textContent = t(getPrefs().lang, "connected");
   };
   ws.onmessage = (m) => {
     let e;
@@ -220,13 +273,14 @@ function connect() {
   ws.onclose = () => {
     if (ws !== sock) return;
     dot.classList.remove("on");
-    label.textContent = t(getPrefs().lang, "reconnecting");
+    $("ws-label").textContent = t(getPrefs().lang, "reconnecting");
     setTimeout(connect, Math.min(5000, 300 * 2 ** retry++));
   };
 }
 
-// onMessage 分发服务端事件：welcome 确定身份、join/leave 增减在线点、
-// cursor 进插值缓冲（世界坐标）、pulse 进效果队列、host_event 进诊断。
+// onMessage 分发服务端事件：welcome 确定身份与在线表、join/leave 增减在线点、
+// cursor 进插值缓冲（世界坐标 + 服务端判定的岛）、presence 更新岛归属、
+// pulse 进效果队列、host_event 进诊断抽屉。
 function onMessage(e) {
   switch (e.type) {
     case "welcome":
@@ -239,7 +293,7 @@ function onMessage(e) {
       break;
     case "join":
       state.sessions.set(e.session.id, { ...e.session, bornAt: performance.now() });
-      recordEvent("join", { id: e.session.id });
+      recordEvent("join", { id: e.session.id, island: e.session.island });
       break;
     case "leave": {
       const s = state.sessions.get(e.id);
@@ -248,16 +302,28 @@ function onMessage(e) {
       break;
     }
     case "cursor": {
-      // 别人的光标增量（v2 世界坐标）：进有界插值缓冲；自己的回声跳过。
+      // 别人的光标增量（世界坐标）：进有界插值缓冲；自己的回声跳过。
       if (e.id === state.you) break;
       const s = state.sessions.get(e.id);
       if (s) {
         const now = performance.now();
         if (!s.buf) s.buf = [];
         appendPositionSample(s.buf, { t: now, x: e.wx, y: e.wy }, now);
-        s.x = e.wx; // 最后已知位置（世界坐标）
-        s.y = e.wy;
+        s.wx = e.wx; // 最后已知位置（世界坐标）
+        s.wy = e.wy;
+        if (e.island !== undefined) s.island = e.island;
       }
+      break;
+    }
+    case "presence": {
+      // 岛归属变化（服务端判定）：更新在线表并记一条事件，不重排场景。
+      const s = state.sessions.get(e.id);
+      if (s) {
+        s.island = e.island;
+        s.wx = e.wx;
+        s.wy = e.wy;
+      }
+      if (e.id !== state.you) recordEvent("island", { id: e.id, island: e.island });
       break;
     }
     case "pulse": {
@@ -280,8 +346,7 @@ function onMessage(e) {
       $("m-heap").textContent = e.heap_mb.toFixed(1) + " MB";
       $("m-sys").textContent = e.sys_mb.toFixed(1) + " MB";
       $("m-dropped").textContent = e.dropped;
-      $("m-hostrate").textContent =
-        ratePerSecond(hostTimes, performance.now(), 10_000).toFixed(1) + "/s";
+      $("m-hostrate").textContent = ratePerSecond(hostTimes, performance.now(), 10_000).toFixed(1) + "/s";
       const badge = $("sensor-badge");
       badge.textContent = e.sensor_online ? t(getPrefs().lang, "sensorLive") : t(getPrefs().lang, "sensorOffline");
       badge.className = "sensor-badge " + (e.sensor_online ? "on" : "off");
@@ -299,7 +364,7 @@ const RENDER_DELAY = 120;
 // s.buf 是按到达时刻排序的 {t, x, y} 队列（世界坐标，t 是本机接收时钟）。
 function samplePosition(s, renderT) {
   const buf = s.buf;
-  if (!buf || buf.length === 0) return { x: s.x, y: s.y };
+  if (!buf || buf.length === 0) return { x: s.wx, y: s.wy };
   const last = buf[buf.length - 1];
   if (renderT >= last.t) return { x: last.x, y: last.y };
   const first = buf[0];
@@ -367,45 +432,84 @@ function drawPointer(ctx, x, y, color, label) {
   }
 }
 
-// presenceOverlay 每帧把真实访客和脉冲画进世界（world.js 的主循环调用）。
+// presenceOverlay 每帧把真实访客和脉冲画进世界（world.js 的渲染循环调用）。
 // 别人的指针在世界坐标上插值后用我自己的相机投影——两端相机不同也对齐。
 function presenceOverlay(ctx, now, helpers) {
   const lang = getPrefs().lang;
   for (const [id, s] of state.sessions) {
     const isYou = id === state.you;
-    const p = isYou ? { x: s.x, y: s.y } : samplePosition(s, now - RENDER_DELAY);
+    // 断线后系统光标接管交互，不再重复绘制旧的本地箭头。
+    if (isYou && ws?.readyState !== WebSocket.OPEN) continue;
+    const p = isYou ? { x: s.wx, y: s.wy } : samplePosition(s, now - RENDER_DELAY);
     const sp = helpers.project(p.x, p.y);
+    if (!sp) continue;
     // 出生/死亡动画的透明度
     let alpha = 1;
     if (s.deadAt) {
-      const t = (now - s.deadAt) / 600;
-      if (t >= 1) {
+      const life = (now - s.deadAt) / 600;
+      if (life >= 1) {
         state.sessions.delete(id);
         continue;
       }
-      alpha = 1 - t;
+      alpha = 1 - life;
     }
     ctx.globalAlpha = alpha;
-    drawPointer(ctx, sp.x, sp.y, isYou ? "#d7b38c" : "#79e6ff", isYou ? t(lang, "you") : id);
+    drawPointer(ctx, sp.x, sp.y, isYou ? paletteAccent() : "#79e6ff", isYou ? t(lang, "you") : id);
     ctx.globalAlpha = 1;
   }
 
-  // 脉冲环：世界坐标投影，600ms 生灭
+  // 脉冲环：世界坐标投影到海面，600ms 生灭
   for (let i = pulses.length - 1; i >= 0; i--) {
-    const t2 = (now - pulses[i].bornAt) / 600;
-    if (t2 >= 1) {
+    const life = (now - pulses[i].bornAt) / 600;
+    if (life >= 1) {
       pulses.splice(i, 1);
       continue;
     }
     const sp = helpers.project(pulses[i].wx, pulses[i].wy);
-    ctx.globalAlpha = (1 - t2) * 0.8;
+    if (!sp) continue;
+    ctx.globalAlpha = (1 - life) * 0.8;
     ctx.beginPath();
-    ctx.arc(sp.x, sp.y, 6 + t2 * 46, 0, Math.PI * 2);
-    ctx.strokeStyle = pulses[i].mine ? "#d7b38c" : "#79e6ff";
+    ctx.arc(sp.x, sp.y, (6 + life * 46) * clampScale(sp.s), 0, Math.PI * 2);
+    ctx.strokeStyle = pulses[i].mine ? paletteAccent() : "#79e6ff";
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
+}
+
+// clampScale 把投影尺度限制在合理范围，避免贴近镜头时脉冲环铺满整屏。
+function clampScale(s) {
+  return Math.max(0.25, Math.min(3, s || 1));
+}
+
+// paletteAccent 读取当前主题的强调色（脉冲与“你”的指针共用）。
+function paletteAccent() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--gold").trim() || "#d7b38c";
+}
+
+// overlayActive 报告实时层是否还有活动：有存活脉冲或远端访客时需要继续出帧。
+// world.js 用它决定是否保持动画循环；没有活动时页面静止、CPU 让出去。
+function overlayActive() {
+  if (pulses.length) return true;
+  for (const [id] of state.sessions) {
+    if (id !== state.you) return true;
+  }
+  return false;
+}
+
+// isReading 报告阅读页/帮助页是否打开：此时暂停海浪推进与动画循环。
+function isReading() {
+  return $("reader").open || $("help-dialog").open;
+}
+
+// isModalOpen 报告是否有模态对话框打开（键盘漫游据此让路）。
+function isModalOpen() {
+  return isReading();
+}
+
+// getReservedRect 返回左侧文字区的屏幕矩形，供 world.js 隐藏与之重叠的岛标签。
+function getReservedRect() {
+  return $("intro").getBoundingClientRect();
 }
 
 // ---------- 事件流与端口速率 ----------
@@ -433,11 +537,19 @@ function renderFeed() {
     const d = r.data;
     if (r.kind === "join") appendParts(msg, ["k-join", "join  "], ["b", d.id], ["", " " + t(lang, "evJoin")]);
     else if (r.kind === "leave") appendParts(msg, ["k-leave", "leave "], ["b", d.id], ["", " " + t(lang, "evLeave")]);
-    else if (r.kind === "pulse") appendParts(msg, ["k-pulse", "pulse "], ["b", d.id], ["", " " + t(lang, "evPulse", { x: d.x.toFixed(2), y: d.y.toFixed(2) })]);
+    else if (r.kind === "island") appendParts(msg, ["k-pulse", "island"], ["b", d.id], ["", " → " + islandName(d.island)]);
+    else if (r.kind === "pulse") appendParts(msg, ["k-pulse", "pulse "], ["b", d.id], ["", " " + t(lang, "evPulse", { x: d.x.toFixed(0), y: d.y.toFixed(0) })]);
     else if (r.kind === "host") appendParts(msg, ["k-host", "host  "], ["b", d.sourceId], ["", " " + t(lang, "evHost", { port: d.port, kind: d.kind }) + (d.mode === "fixture" ? t(lang, "evFixtureSuffix") : "")]);
     el.append(time, msg);
     feed.appendChild(el);
   }
+}
+
+// islandName 把服务端岛 id 换成当前语言的示例名；未知 id 原样显示（不假装认识）。
+function islandName(id) {
+  const index = ISLANDS.findIndex((isl) => isl.id === id);
+  if (index < 0) return id || "—";
+  return tArr(getPrefs().lang, "islandNames")[index] || id;
 }
 
 // appendParts 把 [css类, 文本] 片段安全地拼进消息节点（只走 textContent）。
@@ -491,45 +603,60 @@ setInterval(renderPorts, 1000);
 
 // ---------- HUD 与控件 ----------
 
-// updateReadout 显示世界坐标与尺度。
+// updateReadout 显示世界坐标与镜头放大倍数（相对远景），并同步缩放按钮的可用状态。
 function updateReadout() {
   const cam = world.getCamera();
   const format = new Intl.NumberFormat(getPrefs().lang, { maximumFractionDigits: 0 });
-  $("coordinates").textContent = "x " + format.format(cam.x) + "   /   y " + format.format(cam.y);
-  $("zoom-label").textContent = (cam.zoom / 0.66).toFixed(cam.zoom < 1 ? 1 : 0) + "×";
+  $("coordinates").textContent = format.format(cam.x) + " / " + format.format(cam.y);
+  $("zoom").textContent = cam.zoom.toFixed(1) + "×";
+  $("minus").disabled = cam.d >= 2400;
+  $("plus").disabled = cam.d <= 280;
 }
 
-// showNotice 显示操作反馈，只有一个有界定时器，新的反馈替换旧反馈。
-let noticeTimer = 0;
-function showNotice(text) {
-  clearTimeout(noticeTimer);
-  $("notice").textContent = text;
-  $("notice").classList.add("on");
-  noticeTimer = setTimeout(() => $("notice").classList.remove("on"), 2300);
+// showToast 显示操作反馈，只有一个有界定时器，新的反馈替换旧反馈。
+let toastTimer = 0;
+function showToast(text) {
+  clearTimeout(toastTimer);
+  $("toast").textContent = text;
+  $("toast").classList.add("on");
+  toastTimer = setTimeout(() => $("toast").classList.remove("on"), 2300);
 }
 
-// 光标上报：mousemove → 世界坐标记账，50ms 定时器 20Hz 发送。
-const canvas = $("world");
-canvas.addEventListener("mousemove", (e) => {
+// 光标上报：pointermove → 世界坐标记账，50ms 定时器 20Hz 发送。
+// island 字段由客户端粗判（便于服务端日志对账），服务端会用同一坐标重新判定权威归属。
+const land = $("land");
+land.addEventListener("pointermove", (e) => {
   const w = world.screenToWorld(e.clientX, e.clientY);
   pending.x = w.x;
   pending.y = w.y;
+  pending.island = islandAt(w.x, w.y);
   pending.dirty = true;
   const me = state.you && state.sessions.get(state.you);
   if (me) {
-    me.x = pending.x;
-    me.y = pending.y;
+    me.wx = pending.x;
+    me.wy = pending.y;
+    me.island = pending.island;
   }
 });
+
+// islandAt 用与后端同一套椭圆判定粗算当前所在岛（只用于上报，不作为权威）。
+function islandAt(x, y) {
+  let best = "", bestD = Infinity;
+  for (const isl of ISLANDS) {
+    const d = Math.hypot((x - isl.x) / isl.r, (y - isl.y) / (isl.r * isl.sy));
+    if (d <= 1.15 && d < bestD) { bestD = d; best = isl.id; }
+  }
+  return best;
+}
 
 setInterval(() => {
   if (!ws) return;
   if (!canSend(pending.dirty, ws.readyState === WebSocket.OPEN, ws.bufferedAmount)) return;
-  ws.send(JSON.stringify({ type: "cursor", v: 2, wx: pending.x, wy: pending.y }));
+  ws.send(JSON.stringify({ type: "cursor", v: 3, wx: pending.x, wy: pending.y, island: pending.island }));
   pending.dirty = false;
 }, 50);
 
-// 地址跳转：字符串散列到确定的世界坐标；相同字符串回到相同位置（示例语义）。
+// 地址跳转：字符串散列到确定的世界坐标；命中示例岛时直接落在岛上（示例语义）。
 $("address-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const value = $("address").value.trim().normalize("NFC");
@@ -538,10 +665,19 @@ $("address-form").addEventListener("submit", (e) => {
   for (const ch of value) h = Math.imul(h ^ ch.codePointAt(0), 16777619);
   const x = ((h >>> 0) % 10001 - 5000) * 560;
   const y = ((Math.imul(h, 2246822519) >>> 0) % 10001 - 5000) * 560;
-  world.flyTo({ x, y, zoom: 0.5 }, updateText, 1400);
+  const hit = islandAt(x, y);
+  if (hit) {
+    const index = ISLANDS.findIndex((isl) => isl.id === hit);
+    world.selectIsland(index);
+    world.approach(index);
+    showToast(islandName(hit));
+  } else {
+    world.flyTo({ x, y, d: 700 });
+    showToast(`${Math.round(x)} / ${Math.round(y)}`);
+  }
 });
 
-// 主题/语言/帮助/状态按钮
+// 顶栏与底部控件
 $("theme").addEventListener("click", () => {
   const cur = getPrefs().theme;
   setTheme(cur === "system" ? "light" : cur === "light" ? "dark" : "system");
@@ -552,38 +688,26 @@ $("locale").addEventListener("click", () => {
 });
 $("help").addEventListener("click", () => $("help-dialog").showModal());
 $("status-btn").addEventListener("click", () => { $("drawer").hidden = !$("drawer").hidden; });
-// 抽屉退出按钮与 Esc 都收起运行状态（不收起世界本身）
 $("drawer-close").addEventListener("click", () => { $("drawer").hidden = true; });
-
-// 缩放/归处控件
-$("plus").addEventListener("click", () => { if (!world.zoomAt(1.35)) showNotice(t(getPrefs().lang, "zoomLimit")); });
-$("minus").addEventListener("click", () => { world.zoomAt(1 / 1.35); });
-$("origin").addEventListener("click", () => {
-  world.flyTo({ x: 0, y: 0, zoom: 0.66 }, updateText);
-});
-$("enter").addEventListener("click", () => {
-  world.enterHouse();
-  $("back").hidden = false;
-  $("nearby").hidden = true;
-});
-$("back").addEventListener("click", () => {
+$("brand").addEventListener("click", () => {
+  world.selectIsland(0);
   world.returnAbove();
-  $("back").hidden = true;
-  $("nearby").hidden = false;
 });
-$("dismiss").addEventListener("click", () => {
-  world.selectHouse(null);
+$("origin").addEventListener("click", () => {
+  world.selectIsland(0);
+  world.returnAbove();
 });
-
-// 附近空间：飞到房屋上空并选中（第二次操作才下降）
-document.querySelectorAll("[data-near]").forEach((el) => {
-  el.addEventListener("click", () => {
-    const h = world.houseById(el.dataset.near);
-    if (!h) return;
-    $("back").hidden = true;
-    world.selectHouse(h);
-    world.flyTo({ x: h.x, y: h.y, zoom: 0.85 }, updateText, 1200);
-  });
+$("plus").addEventListener("click", () => {
+  if (!world.zoomAt(0.72)) showToast(t(getPrefs().lang, "zoomLimit"));
+});
+$("minus").addEventListener("click", () => world.zoomAt(1.38));
+$("approach").addEventListener("click", () => {
+  if (world.getNearState()) world.returnAbove();
+  else world.approach(world.getSelected());
+});
+$("next-article").addEventListener("click", () => {
+  const cur = Number($("reader").dataset.article) || 0;
+  openArticle((cur + 1) % ARTICLES[getPrefs().lang].titles.length);
 });
 
 // 对话框关闭交还焦点
@@ -592,62 +716,46 @@ document.querySelectorAll("[data-close]").forEach((el) => {
 });
 $("reader").addEventListener("close", () => {
   if (originFocus?.isConnected) originFocus.focus();
-  else canvas.focus();
-});
-
-// 键盘漫游：方向键平移、+/− 缩放、Esc 返回/取消；文本输入和对话框时不截获。
-window.addEventListener("keydown", (e) => {
-  if (e.target instanceof HTMLInputElement || $("reader").open || $("help-dialog").open) return;
-  const cam = world.getCamera();
-  const step = 75 / cam.zoom;
-  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
-    e.preventDefault();
-    world.flyTo({
-      x: cam.x + (e.key === "ArrowRight" ? step : e.key === "ArrowLeft" ? -step : 0),
-      y: cam.y + (e.key === "ArrowDown" ? step : e.key === "ArrowUp" ? -step : 0),
-      zoom: cam.zoom,
-    }, null, 220);
-  }
-  if (e.key === "+" || e.key === "=") world.zoomAt(1.25);
-  if (e.key === "-") world.zoomAt(0.8);
-  if (e.key === "Escape" && !$("drawer").hidden) {
-    $("drawer").hidden = true;
-    return;
-  }
-  if (e.key === "Escape") {
-    if ($("back").hidden === false) {
-      world.returnAbove();
-      $("back").hidden = true;
-      $("nearby").hidden = false;
-    } else {
-      world.selectHouse(null);
-    }
-  }
+  else land.focus();
 });
 
 // ---------- 启动 ----------
 
-// initWorld 接管画布与渲染循环；四个回调把世界事件接到产品状态上。
-world.initWorld(canvas, {
-  onHouseSelect: () => updateSelection(),
-  onBookPick: (i) => openArticle(i),
-  onGroundPulse: (wx, wy) => {
-    // 空地点击 = 世界坐标脉冲（打招呼）；不走 20Hz 采样，事件每次单独发
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: "pulse", v: 2, clientEventId: `c${pulseSeq++}`, wx, wy }));
+// initWorld 接管三块画布与渲染循环；回调把世界事件接到产品状态上。
+world.initWorld(
+  { sea: $("sea"), land, air: $("air"), labelHost: $("labels") },
+  {
+    // 选中岛：刷新附近列表与左侧文案，让界面始终指向当前空间
+    onIslandSelect: () => {
+      renderNearby();
+      updateModeText();
+    },
+    // 点击纸页/标签：打开对应文章（示例内容）
+    onBookPick: (i) => openArticle(i),
+    // 靠近/退回：切换左侧文案与窄屏底部入口
+    onNearChange: () => updateModeText(),
+    // 空地点击 = 世界坐标脉冲（打招呼）；每次单独发，不走 20Hz 采样
+    onGroundPulse: (wx, wy) => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "pulse", v: 2, clientEventId: `c${pulseSeq++}`, wx, wy }));
+    },
+    // 相机移动：坐标读数节流到 180ms，不每帧写 DOM
+    onCameraMove: (() => {
+      let last = 0;
+      return () => {
+        const now = performance.now();
+        if (now - last > 180) {
+          updateReadout();
+          last = now;
+        }
+      };
+    })(),
+    isReading,
+    isModalOpen,
+    overlayActive,
+    getReservedRect,
   },
-  onCameraMove: (() => {
-    // 坐标读数节流到 180ms，不每帧写 DOM
-    let last = 0;
-    return () => {
-      const now = performance.now();
-      if (now - last > 180) {
-        updateReadout();
-        last = now;
-      }
-    };
-  })(),
-});
+);
 world.setOverlay(presenceOverlay);
 
 updateText();

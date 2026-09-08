@@ -1,97 +1,146 @@
-/* style.css — 粒子地表外壳。颜色全部来自 tokens.css；布局沿用校准过的 Demo。 */
+/* style.css — 潮汐群岛外壳。颜色全部来自 tokens.css；排版与留白沿用视觉稿。 */
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink);
-  font: 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+body { background: var(--bg); color: var(--ink);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
 button, input { font: inherit; color: inherit; }
-button { cursor: pointer; border: 0; background: none; }
-button:disabled { opacity: .4; cursor: default; }
-button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
-button:hover { color: var(--accent); }
-button[hidden], section[hidden], aside[hidden] { display: none !important; }
+button { cursor: pointer; background: none; border: 0; }
+button:active { transform: translateY(1px); }
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-offset: 5px; }
+button:disabled { opacity: .35; cursor: default; }
+a { color: var(--gold); }
+[hidden] { display: none !important; }
 
-#world { display: block; width: 100vw; height: 100dvh; touch-action: none; cursor: none; }
-/* 画布内隐藏系统鼠标：你的箭头指针零延迟跟随，它就是唯一光标；拖动反馈来自地表本身 */
-#world.drag { cursor: none; }
+/* ---------- 三层画布与标签层 ---------- */
+#sea, #land, #air { position: fixed; inset: 0; width: 100%; height: 100%; }
+#sea, #air { pointer-events: none; }
+#land { touch-action: none; cursor: grab; }
+#land.dragging { cursor: grabbing; }
+#air { z-index: 2; }
+#labels { position: fixed; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
 
-header { position: fixed; inset: 24px 30px auto; display: flex; align-items: center;
-  justify-content: space-between; gap: 20px; pointer-events: none; }
+/* ---------- 顶栏 ---------- */
+header { position: fixed; z-index: 6; inset: 25px 34px auto; display: flex;
+  align-items: center; justify-content: space-between; gap: 22px; pointer-events: none; }
 header > * { pointer-events: auto; }
-.brand { font: 600 22px/1.2 Georgia, serif; letter-spacing: .12em; }
-.tools { display: flex; gap: 8px; align-items: center; }
-.tools button { padding: 7px 10px; }
-
-.status-chip { display: inline-flex; align-items: center; gap: 7px;
-  font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted);
-  border: 1px solid var(--line); border-radius: 99px; padding: 4px 11px; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.brand { font: 700 29px/1 Georgia, "Songti SC", serif; letter-spacing: 2px; }
+.brand small { font: 10px/1 sans-serif; color: var(--muted); letter-spacing: 3px;
+  margin-left: 19px; padding-left: 20px; border-left: 1px solid var(--line); vertical-align: middle; }
+.tools { display: flex; align-items: center; gap: 20px; }
+.tools button { color: var(--muted); padding: 8px 0; transition: color .2s; }
+.tools button:hover { color: var(--ink); }
+.status { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 30px; padding: 5px 11px; white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace; }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
 .dot.on { background: var(--focus); }
-
-#address-form { display: flex; align-items: center; border-bottom: 1px solid var(--line); gap: 10px; width: 235px; }
-#address { width: 100%; min-width: 0; border: 0; background: transparent; padding: 7px 0; outline-offset: 1px; }
+#address-form { display: flex; align-items: center; gap: 6px; width: 180px;
+  border-bottom: 1px solid var(--line); }
+#address { width: 100%; min-width: 0; border: 0; background: transparent; padding: 6px 0; }
 #address::placeholder { color: var(--muted); }
-#go { font-size: 18px; padding: 4px 9px; }
+#go { font-size: 15px; padding: 2px 6px; color: var(--muted); }
+#go:hover { color: var(--ink); }
 
-.context { position: fixed; top: 104px; left: 32px; pointer-events: none; }
-.context h1 { font-size: 22px; font-weight: 450; margin: 0 0 5px; letter-spacing: .04em; }
-.context p { margin: 0; color: var(--muted); font-size: 12px; }
-.context .action { pointer-events: auto; margin-top: 16px; padding: 6px 0; color: var(--accent); }
+/* ---------- 左侧介绍与靠近入口 ---------- */
+#intro { position: fixed; z-index: 4; left: 6.2vw; top: 20vh; max-width: 265px; pointer-events: none; }
+.eyebrow { font-size: 10px; letter-spacing: 3px; color: var(--muted); margin: 0 0 18px; }
+#headline { font: 400 clamp(29px, 3vw, 46px)/1.45 Georgia, "Songti SC", serif;
+  letter-spacing: 3px; margin: 0 0 14px; }
+#description { font-size: 12px; line-height: 2; color: var(--muted); max-width: 220px; margin: 0;
+  white-space: pre-line; }
+#approach { pointer-events: auto; display: inline-flex; align-items: center; gap: 26px;
+  color: var(--gold); border-bottom: 1px solid var(--line); padding: 13px 0 11px; margin-top: 25px;
+  font-size: 12px; }
+#approach:hover { border-color: var(--gold); }
+#approach span:last-child { font-size: 20px; font-weight: 200; }
 
-.bottom { position: fixed; left: 30px; right: 30px; bottom: 22px; display: flex;
-  align-items: end; justify-content: space-between; gap: 18px; pointer-events: none; }
-.bottom > * { pointer-events: auto; }
-.meta { font-size: 11px; color: var(--muted); letter-spacing: .02em; }
-.coords { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink); margin-bottom: 5px; }
-.controls { display: flex; align-items: center; border: 1px solid var(--line);
-  background: var(--panel); border-radius: 28px; padding: 3px 7px; }
-.controls button { min-width: 37px; min-height: 36px; font-size: 20px; }
-.controls .home { font-size: 12px; padding: 0 12px; border-left: 1px solid var(--line); margin-left: 5px; }
-.zoomlabel { font-size: 11px; color: var(--muted); min-width: 59px; text-align: center; }
+/* ---------- 附近岛屿列表 ---------- */
+#nearby { position: fixed; z-index: 5; left: 6.2vw; bottom: 108px; width: 206px; }
+#nearby h2 { font: 10px/1 sans-serif; letter-spacing: 2px; color: var(--muted); margin: 0 0 15px; }
+#nearby button { display: flex; justify-content: space-between; align-items: center;
+  width: 100%; padding: 9px 0; color: var(--muted); font-size: 12px; text-align: left; }
+#nearby button:hover, #nearby button.current { color: var(--ink); }
+#nearby button.current::after { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--gold); }
+#nearby .arrow { color: var(--muted); font-size: 12px; }
 
-#nearby { position: fixed; right: 30px; top: 104px; text-align: right;
-  display: flex; flex-direction: column; gap: 7px; }
-.near-label { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
-#nearby button { padding: 3px 0; font-size: 12px; }
-#nearby button::after { content: ' ↙'; color: var(--muted); }
+/* ---------- 画布上的 DOM 标签（world.js 定位） ---------- */
+.island-label { position: absolute; left: 0; top: 0; pointer-events: auto;
+  transform: translate(-50%, -50%); white-space: nowrap; text-align: center; min-width: 110px;
+  padding: 14px 12px; color: var(--ink); text-shadow: 0 2px 15px var(--bg); transition: color .2s; }
+.island-label:hover { color: var(--gold); }
+.island-label .name { display: block; font: 15px/1.6 Georgia, "Songti SC", serif; letter-spacing: 2px; }
+.island-label .sub { font-size: 9px; letter-spacing: 2px; color: var(--muted); }
+.island-label::before { content: ""; display: block; width: 1px; height: 22px;
+  background: linear-gradient(transparent, var(--gold)); margin: -30px auto 9px; opacity: .45; }
+.article-label { position: absolute; left: 0; top: 0; pointer-events: auto; padding: 12px 12px 10px;
+  text-align: left; white-space: nowrap; border-left: 1px solid var(--line);
+  background: linear-gradient(90deg, var(--panel), transparent); transform: translate(14px, -50%);
+  transition: background .2s; max-width: 225px; }
+.article-label:hover { border-color: var(--gold); }
+.article-label .meta { font: 9px/1.7 sans-serif; color: var(--gold); letter-spacing: 2px; }
+.article-label .name { display: block; font: 14px/1.8 Georgia, "Songti SC", serif;
+  letter-spacing: 1px; color: var(--ink); }
+.article-label .more { display: block; font: 10px/1.8 sans-serif; color: var(--muted); margin-top: 3px; }
 
-#selection { position: fixed; right: 30px; bottom: 102px; width: 236px;
-  border-top: 1px solid var(--line); background: var(--panel); padding: 18px 20px; border-radius: 3px; }
-#selection h2 { font: 500 18px/1.4 Georgia, "Microsoft YaHei", serif; margin: 0 0 7px; }
-#selection p { color: var(--muted); font-size: 12px; margin: 0 0 15px; }
-.primary { background: var(--ink); color: var(--bg); padding: 8px 17px; border-radius: 3px; }
-.primary:hover { color: var(--bg); opacity: .8; }
-.secondary { font-size: 12px; margin-left: 8px; }
-.book-list { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
-.book-list button { text-align: left; padding: 5px 0; color: var(--accent); }
+/* ---------- 底部：坐标与缩放 ---------- */
+footer { position: fixed; z-index: 5; bottom: 24px; left: 34px; right: 34px;
+  display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; }
+footer > * { pointer-events: auto; }
+.footnote { color: var(--muted); font-size: 10px; line-height: 1.8; }
+.coordinates { font: 10px/1.8 ui-monospace, Consolas, monospace; letter-spacing: 1px; }
+#hint { position: fixed; bottom: 35px; left: 50%; transform: translateX(-50%); font-size: 11px;
+  letter-spacing: 1px; color: var(--muted); white-space: nowrap; z-index: 4; pointer-events: none; }
+.zoom { display: flex; align-items: center; gap: 5px; pointer-events: auto;
+  border: 1px solid var(--line); border-radius: 40px; padding: 3px 6px; background: var(--panel); }
+.zoom button { height: 35px; min-width: 34px; font-size: 18px; font-weight: 200; }
+.zoom button:last-child { font-size: 11px; padding: 0 15px; border-left: 1px solid var(--line);
+  margin-left: 4px; font-weight: 400; }
+.zoom output { font: 10px/1 ui-monospace, Consolas, monospace; color: var(--muted); width: 43px;
+  text-align: center; }
+#mobile-articles { display: none; }
 
-#hint { position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%);
-  padding: 5px 12px; color: var(--muted); font-size: 12px; pointer-events: none; white-space: nowrap; }
-#notice { position: fixed; top: 78px; left: 50%; transform: translateX(-50%);
-  background: var(--panel); padding: 7px 16px; max-width: 90vw; border-radius: 5px;
-  font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
-#notice.on { opacity: 1; }
-
+/* ---------- 对话框 ---------- */
 dialog { color: var(--ink); background: var(--panel); border: 1px solid var(--line);
-  border-radius: 9px; padding: 28px; max-width: min(620px, 92vw); max-height: 84dvh; overflow: auto; }
-dialog::backdrop { background: #06101488; backdrop-filter: blur(6px); }
-dialog h2 { margin-top: 0; font-weight: 500; }
-dialog p { color: var(--muted); }
-dialog button.close { float: right; padding: 0 4px; font-size: 23px; line-height: 1; }
-#reader { width: 700px; max-width: 94vw; background: var(--bg); padding: 34px 46px; }
-#reader h2 { font: 500 28px/1.5 Georgia, "Microsoft YaHei", serif; margin: 25px 0 20px; }
-#reader p { font-size: 17px; line-height: 1.95; color: var(--ink); }
-#reader .source { color: var(--muted); font-size: 12px; }
+  max-width: min(640px, calc(100vw - 30px)); max-height: 85dvh; box-shadow: 0 25px 140px #0005;
+  padding: 40px; border-radius: 3px; }
+dialog::backdrop { background: #0616199c; backdrop-filter: blur(8px); }
+dialog h2 { font: 400 26px/1.5 Georgia, "Songti SC", serif; letter-spacing: 2px; margin: 15px 0 25px; }
+dialog p, dialog li { line-height: 2; font-size: 13px; color: var(--muted); }
+dialog .close { position: absolute; top: 14px; right: 17px; font: 24px/1 sans-serif;
+  color: var(--muted); width: 36px; height: 36px; }
+.dialog-label { font-size: 10px; letter-spacing: 3px; color: var(--gold); }
 
-/* 运行状态抽屉 */
+#reader { background: var(--paper); color: var(--paper-ink); width: 690px; padding: 65px 72px;
+  border: 0; max-height: 90dvh; scrollbar-width: thin; }
+#reader .close { color: var(--paper-ink); }
+#reader h2 { font-size: 32px; line-height: 1.55; margin: 28px 0 22px; letter-spacing: 1px; }
+#reader .dialog-label { color: #7c8062; }
+#reader .rule { width: 28px; height: 1px; background: #98a28d; margin: 34px 0; }
+#reader p { font: 16px/2.15 Georgia, "Songti SC", serif; color: var(--paper-ink); margin: 0 0 22px; }
+#reader .reader-end { font: 10px/1.8 sans-serif; color: #718379; margin-top: 45px; letter-spacing: 2px; }
+#reader .next { color: var(--paper-ink); padding: 15px 0 0; border-top: 1px solid #29444026;
+  margin-top: 15px; width: 100%; text-align: left; font-size: 12px; }
+
+/* ---------- 提示条 ---------- */
+#toast { position: fixed; z-index: 9; left: 50%; top: 88px; transform: translateX(-50%);
+  padding: 10px 20px; border: 1px solid var(--line); background: var(--panel); border-radius: 30px;
+  font-size: 12px; pointer-events: none; opacity: 0; transition: opacity .2s; }
+#toast.on { opacity: 1; }
+
+/* ---------- 运行状态抽屉 ---------- */
 #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 330px; z-index: 20;
   background: var(--panel); border-left: 1px solid var(--line); padding: 16px 14px; overflow-y: auto; }
 #drawer h3 { font-size: 10px; letter-spacing: .18em; color: var(--muted);
-  font-family: ui-monospace, monospace; margin-bottom: 12px; }
+  font-family: ui-monospace, monospace; margin: 0 0 12px; }
+.drawer-close { position: absolute; top: 10px; right: 12px; font-size: 20px;
+  color: var(--muted); padding: 2px 8px; z-index: 1; }
+.drawer-close:hover { color: var(--ink); }
 .drawer-row { display: flex; align-items: center; gap: 10px; font-family: ui-monospace, monospace;
   font-size: 11px; color: var(--muted); margin-bottom: 14px; }
 .sensor-badge { font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: 1.5px;
   padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
-.sensor-badge.on { color: var(--accent); border-color: var(--accent); }
+.sensor-badge.on { color: var(--gold); border-color: var(--gold); }
 .section-title { font-size: 10px; letter-spacing: .18em; color: var(--muted);
   margin: 14px 4px 8px; font-family: ui-monospace, monospace; }
 .feed .event { padding: 8px 4px; border-bottom: 1px solid var(--line);
@@ -100,54 +149,76 @@ dialog button.close { float: right; padding: 0 4px; font-size: 23px; line-height
 .event .time { color: var(--muted); }
 .event .msg { color: var(--muted); word-break: break-all; }
 .event b { font-weight: 600; color: var(--ink); }
-.event .k-host { color: var(--accent); }
+.event .k-host { color: var(--gold); }
 .event .k-pulse { color: var(--focus); }
 .event .k-join { color: var(--focus); }
-
 .ports { padding: 0 4px; }
 .prow { display: grid; grid-template-columns: 46px 1fr 44px; align-items: center;
   gap: 8px; font: 10px ui-monospace, monospace; padding: 6px 2px; color: var(--muted); }
 .prow .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .prow .bar > span { display: block; height: 100%; background: var(--muted); transition: width .5s ease; }
-.prow.hot { color: var(--accent); }
-.prow.hot .bar > span { background: var(--accent); }
-
+.prow.hot { color: var(--gold); }
+.prow.hot .bar > span { background: var(--gold); }
 .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 14px; }
-.metric .label { font-size: 9px; letter-spacing: .15em; color: var(--muted); font-family: ui-monospace, monospace; }
+.metric .label { font-size: 9px; letter-spacing: .15em; color: var(--muted);
+  font-family: ui-monospace, monospace; }
 .metric .value { font-size: 18px; font-weight: 680; margin-top: 5px; letter-spacing: -.03em;
   font-family: ui-monospace, monospace; }
 
-@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
-
-@media (max-width: 700px) {
-  header { inset: 18px 16px auto; gap: 10px; flex-wrap: wrap; }
-  .brand { font-size: 20px; }
-  .tools { gap: 0; }
-  .tools button { padding: 5px 7px; font-size: 12px; }
-  #address-form { order: 3; width: 180px; }
-  .context { left: 18px; top: 120px; }
-  .context h1 { font-size: 18px; }
-  .context p { max-width: 190px; font-size: 11px; }
-  #nearby { top: 122px; right: 18px; gap: 4px; max-width: 135px; }
-  .bottom { left: 16px; right: 16px; bottom: 14px; gap: 8px; }
-  .meta { font-size: 9px; max-width: 170px; }
-  .coords { font-size: 10px; }
-  .controls { padding: 2px 4px; }
-  .controls button { min-width: 29px; min-height: 36px; }
-  .controls .home { padding: 0 8px; }
-  .zoomlabel { min-width: 40px; }
-  #selection { right: 16px; bottom: 96px; width: 210px; padding: 13px 15px; }
-  #hint { bottom: 73px; font-size: 10px; max-width: 94vw; white-space: normal; text-align: center; }
-  #reader { padding: 24px; }
-  #reader h2 { font-size: 23px; }
-  #drawer { width: 100%; }
-  body[data-inside=true] #selection { left: 16px; right: 16px; bottom: 97px; width: auto; padding: 9px 13px; }
-  body[data-inside=true] #selection h2, body[data-inside=true] #selection p { display: none; }
-  body[data-inside=true] .book-list { flex-direction: row; gap: 12px; }
-  body[data-inside=true] .book-list button { flex: 1; font-size: 10px; line-height: 1.5; }
+/* ---------- 窄屏 ---------- */
+@media (max-width: 850px) {
+  header { inset: 20px 22px auto; }
+  .brand small { display: none; }
+  .tools { gap: 15px; }
+  #address-form { width: 130px; }
+  #intro { left: 30px; top: 17vh; max-width: 190px; }
+  #headline { font-size: 31px; }
+  #description { max-width: 175px; }
+  #nearby { left: 30px; width: 165px; }
+  footer { left: 22px; right: 22px; }
+  #hint { bottom: 78px; font-size: 10px; }
 }
 
-/* 抽屉退出按钮 */
-.drawer-close { position: absolute; top: 10px; right: 12px; font-size: 20px;
-  color: var(--muted); padding: 2px 8px; z-index: 1; }
-.drawer-close:hover { color: var(--ink); }
+@media (max-width: 580px) {
+  header { inset: 20px 20px auto; }
+  .brand { font-size: 27px; }
+  .tools { gap: 13px; }
+  .status, #address-form { display: none; }
+  #intro { left: 24px; top: 105px; max-width: 190px; }
+  .eyebrow { margin-bottom: 10px; font-size: 9px; }
+  #headline { font-size: 30px; margin-bottom: 8px; }
+  #description { font-size: 11px; max-width: 185px; line-height: 1.8; }
+  #approach { margin-top: 12px; padding-top: 9px; font-size: 11px; }
+  #nearby { bottom: 125px; left: 24px; width: 140px; }
+  #nearby h2 { font-size: 9px; }
+  #nearby button { padding: 7px 0; font-size: 11px; }
+  footer { left: 20px; right: 20px; bottom: 19px; }
+  .footnote { font-size: 8px; max-width: 100px; }
+  .coordinates { font-size: 9px; }
+  .zoom { gap: 1px; }
+  .zoom button { min-width: 30px; }
+  .zoom button:last-child { padding: 0 9px; }
+  #hint { bottom: 83px; font-size: 9px; letter-spacing: 0; }
+  .island-label .name { font-size: 13px; }
+  .island-label .sub { font-size: 8px; }
+  .article-label { display: none; }
+  body.near #nearby { display: none; }
+  body.near #description { display: none; }
+  body.near #headline { font-size: 25px; }
+  body.near #approach { margin-top: 5px; }
+  #mobile-articles { display: none; position: fixed; left: 22px; right: 22px; bottom: 119px;
+    z-index: 6; gap: 8px; flex-wrap: wrap; }
+  body.near #mobile-articles { display: flex; }
+  #mobile-articles button { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    font: 12px/1.5 Georgia, "Songti SC", serif; padding: 9px 12px; }
+  #reader { padding: 48px 27px; }
+  #reader h2 { font-size: 26px; }
+  #reader p { font-size: 15px; }
+  dialog { padding: 35px 25px; }
+  #drawer { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  dialog::backdrop { backdrop-filter: none; }
+}
