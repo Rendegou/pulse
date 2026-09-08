@@ -1,0 +1,36 @@
+{
+  "before": {
+    "rawP50": 5.599999999860302,
+    "rawP95": 6.899999999906868,
+    "rafP50": 20.799999999999955,
+    "rafP95": 25,
+    "stages": {
+      "drawTerrain": 266.1000000014901,
+      "visibleHouses": 3.700000000419095,
+      "drawHouse": 269.99999999976717
+    },
+    "stats": {
+      "frameMs": 5.520849555573707,
+      "terrainCount": 2567,
+      "houses": 47
+    }
+  },
+  "after": {
+    "rawP50": 2.1000000000931323,
+    "rawP95": 3.4000000001396984,
+    "rafP50": 4.199999999999989,
+    "rafP95": 8.5,
+    "stages": {
+      "drawTerrain": 69.99999999976717,
+      "visibleHouses": 3.700000000651926,
+      "drawHouse": 118.09999999939464
+    },
+    "stats": {
+      "frameMs": 2.2154491348760232,
+      "terrainCount": 3096,
+      "houses": 47,
+      "scenePaints": 101,
+      "terrainTiles": 45
+    }
+  }
+}

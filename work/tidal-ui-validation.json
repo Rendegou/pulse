@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "errors": [],
+  "checks": [
+    "启动：三岛 / WebGL 海面 / WS 已连接",
+    "远景点纸页不误开阅读",
+    "静止稳定（陆地层缓存命中）",
+    "滚轮靠近 + 锚定",
+    "靠近 → 纸页命中 → 阅读 → 回到海上",
+    "主题与语言持久化",
+    "390px 窄屏（无横向滚动 / 可阅读）",
+    "双窗口真实访客（在线表与光标广播）"
+  ],
+  "boot": {
+    "islands": 3,
+    "seaPoints": 394857,
+    "waterRenderer": "webgl"
+  },
+  "network": "Real Go server (go run .) on 127.0.0.1:8090; two real WebSocket clients in one browser.",
+  "notVerified": [
+    "真实手机触控与双指手势",
+    "减少动态的浏览器模拟",
+    "低端设备 GPU 帧耗时",
+    "WebGL 上下文丢失后的 Canvas 2D 回退"
+  ]
+}

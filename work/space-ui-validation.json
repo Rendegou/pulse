@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "errors": [],
+  "checks": [
+    "idle scene reuse",
+    "wheel anchor and scene invalidation",
+    "continuous entry",
+    "canvas book hit",
+    "DOM reading and return",
+    "theme/locale persistence",
+    "390px layout"
+  ],
+  "network": "Static frontend only; real WebSocket integration not tested."
+}
