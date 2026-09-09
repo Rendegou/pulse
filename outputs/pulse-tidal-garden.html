@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>PULSE · 潮汐之间</title>
+<style>
+/* 独立视觉稿；字体、图形和交互全部内置，不依赖网络资源。 */
+:root{--bg:#091c20;--ink:#dce9e3;--muted:#839c98;--line:#78938a38;--gold:#ddbc87;--panel:#10272beF;--paper:#edf0e5;--paper-ink:#294440;--shadow:#020e13;--serif:Georgia,"Songti SC","Noto Serif CJK SC","SimSun",serif}
+:root[data-theme=light]{--bg:#e5eee8;--ink:#284640;--muted:#627e75;--line:#4c776137;--gold:#80673e;--panel:#eff4ecef;--paper:#f7f5ea;--paper-ink:#294440;--shadow:#acc7bb}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{background:var(--bg);color:var(--ink);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}button,input{font:inherit;color:inherit}button{cursor:pointer;background:none;border:0}button:active{transform:translateY(1px)}button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--gold);outline-offset:5px}button:disabled{opacity:.35;cursor:default}button,a{-webkit-tap-highlight-color:transparent}a{color:var(--gold)}[hidden]{display:none!important}
+#sea,#land,#air{position:fixed;inset:0;width:100%;height:100%}#sea,#air{pointer-events:none}#land{touch-action:none;cursor:grab}#land.dragging{cursor:grabbing}#air{z-index:2}#labels{position:fixed;inset:0;pointer-events:none;z-index:3;overflow:hidden}
+header{position:fixed;z-index:6;inset:25px 34px auto;display:flex;align-items:center;justify-content:space-between;gap:22px;pointer-events:none}.brand{font:700 29px/1 var(--serif);letter-spacing:2px;pointer-events:auto}.brand small{font:10px/1 sans-serif;color:var(--muted);letter-spacing:3px;margin-left:19px;padding-left:20px;border-left:1px solid var(--line);vertical-align:middle}.tools{display:flex;align-items:center;gap:22px;pointer-events:auto}.tools button{color:var(--muted);padding:8px 0;transition:color .2s}.tools button:hover{color:var(--ink)}.status{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:30px;padding:5px 11px;white-space:nowrap}.status::before{content:"";display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--muted);margin-right:7px}
+#intro{position:fixed;z-index:4;left:6.2vw;top:20vh;max-width:265px;pointer-events:none}.eyebrow{font-size:10px;letter-spacing:3px;color:var(--muted);margin:0 0 18px}h1{font:400 clamp(29px,3vw,46px)/1.45 var(--serif);letter-spacing:3px;margin:0 0 14px}#description{font-size:12px;line-height:2;color:var(--muted);max-width:220px;margin:0}#approach{pointer-events:auto;display:inline-flex;align-items:center;gap:26px;color:var(--gold);border-bottom:1px solid var(--line);padding:13px 0 11px;margin-top:25px;font-size:12px}#approach:hover{border-color:var(--gold)}#approach span:last-child{font-size:20px;font-weight:200}
+#nearby{position:fixed;z-index:5;left:6.2vw;bottom:108px;width:206px}#nearby h2{font:10px/1 sans-serif;letter-spacing:2px;color:var(--muted);margin:0 0 15px}#nearby button{display:flex;justify-content:space-between;align-items:center;width:100%;padding:9px 0;color:var(--muted);font-size:12px;text-align:left}#nearby button:hover,#nearby button.current{color:var(--ink)}#nearby button.current::after{content:"";width:4px;height:4px;border-radius:50%;background:var(--gold)}#nearby .small-arrow{color:var(--muted);font-size:12px}
+.island-label{position:absolute;left:0;top:0;pointer-events:auto;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;min-width:110px;padding:14px 12px;color:var(--ink);text-shadow:0 2px 15px var(--bg);transition:color .2s}.island-label:hover{color:var(--gold)}.island-label .name{display:block;font:15px/1.6 var(--serif);letter-spacing:2px}.island-label .sub{font-size:9px;letter-spacing:2px;color:var(--muted)}.island-label::before{content:"";display:block;width:1px;height:22px;background:linear-gradient(transparent,var(--gold));margin:-30px auto 9px;opacity:.45}
+.article-label{position:absolute;left:0;top:0;pointer-events:auto;padding:12px 12px 10px;text-align:left;white-space:nowrap;border-left:1px solid var(--line);background:linear-gradient(90deg,var(--panel),transparent);transform:translate(14px,-50%);transition:background .2s;max-width:225px}.article-label:hover{border-color:var(--gold)}.article-label .meta{font:9px/1.7 sans-serif;color:var(--gold);letter-spacing:2px}.article-label .name{display:block;font:14px/1.8 var(--serif);letter-spacing:1px;color:var(--ink)}.article-label .more{display:block;font:10px/1.8 sans-serif;color:var(--muted);margin-top:3px}
+footer{position:fixed;z-index:5;bottom:24px;left:34px;right:34px;display:flex;justify-content:space-between;align-items:flex-end;pointer-events:none}.footnote{color:var(--muted);font-size:10px;line-height:1.8}.coordinates{font:10px/1.8 ui-monospace,Consolas,monospace;letter-spacing:1px}#hint{position:fixed;bottom:35px;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:1px;color:var(--muted);white-space:nowrap;z-index:4;pointer-events:none}.zoom{display:flex;align-items:center;gap:5px;pointer-events:auto;border:1px solid var(--line);border-radius:40px;padding:3px 6px;background:var(--panel)}.zoom button{height:35px;min-width:34px;font-size:18px;font-weight:200}.zoom button:last-child{font-size:11px;padding:0 15px;border-left:1px solid var(--line);margin-left:4px}.zoom output{font:10px/1 ui-monospace,monospace;color:var(--muted);width:43px;text-align:center}#mobile-articles{display:none}
+dialog{color:var(--ink);background:var(--panel);border:1px solid var(--line);max-width:min(640px,calc(100vw - 30px));max-height:85dvh;box-shadow:0 25px 140px #0005;padding:40px;border-radius:3px}dialog::backdrop{background:#0616199c;backdrop-filter:blur(8px)}dialog h2{font:400 26px/1.5 var(--serif);letter-spacing:2px;margin:15px 0 25px}dialog p,dialog li{line-height:2;font-size:13px;color:var(--muted)}dialog .close{position:absolute;top:14px;right:17px;font:24px/1 sans-serif;color:var(--muted);width:36px;height:36px}.dialog-label{font-size:10px;letter-spacing:3px;color:var(--gold)}
+#reader{background:var(--paper);color:var(--paper-ink);width:690px;padding:65px 72px;border:0;max-height:90dvh;scrollbar-width:thin}#reader .close{color:var(--paper-ink)}#reader h2{font-size:32px;line-height:1.55;margin:28px 0 22px;letter-spacing:1px}#reader .dialog-label{color:#7c8062}#reader .rule{width:28px;height:1px;background:#98a28d;margin:34px 0}#reader p{font:16px/2.15 var(--serif);color:var(--paper-ink);margin:0 0 22px}#reader .reader-end{font:10px/1.8 sans-serif;color:#718379;margin-top:45px;letter-spacing:2px}#reader .next{color:var(--paper-ink);padding:15px 0 0;border-top:1px solid #29444026;margin-top:15px;width:100%;text-align:left;font-size:12px}
+#toast{position:fixed;z-index:9;left:50%;top:88px;transform:translateX(-50%);padding:10px 20px;border:1px solid var(--line);background:var(--panel);border-radius:30px;font-size:12px;pointer-events:none;opacity:0;transition:opacity .2s}#toast.visible{opacity:1}
+@media(max-width:850px){header{inset:20px 22px auto}.brand small{display:none}.tools{gap:17px}#intro{left:30px;top:17vh;max-width:190px}h1{font-size:31px}#description{max-width:175px}#nearby{left:30px;width:165px}footer{left:22px;right:22px}#hint{bottom:78px;font-size:10px}}
+@media(max-width:580px){header{inset:20px 20px auto}.brand{font-size:27px}.tools{gap:16px}.status{display:none}#intro{left:24px;top:105px;max-width:190px}.eyebrow{margin-bottom:10px;font-size:9px}h1{font-size:30px;margin-bottom:8px}#description{font-size:11px;max-width:185px;line-height:1.8}#approach{margin-top:12px;padding-top:9px;font-size:11px}#nearby{bottom:125px;left:24px;width:140px}#nearby h2{font-size:9px}#nearby button{padding:7px 0;font-size:11px}footer{left:20px;right:20px;bottom:19px}.footnote{font-size:8px;max-width:100px}.coordinates{font-size:9px}.zoom{gap:1px}.zoom button{min-width:30px}.zoom button:last-child{padding:0 9px}#hint{bottom:83px;font-size:9px;letter-spacing:0}.island-label .name{font-size:13px}.island-label .sub{font-size:8px}.article-label{display:none}body.near #nearby{display:none}body.near #description{display:none}body.near h1{font-size:25px}body.near #approach{margin-top:5px}#mobile-articles{display:none;position:fixed;left:22px;right:22px;bottom:119px;z-index:6;gap:8px;flex-wrap:wrap}body.near #mobile-articles{display:flex}#mobile-articles button{background:var(--panel);border:1px solid var(--line);border-radius:4px;font:12px/1.5 var(--serif);padding:9px 12px}#reader{padding:48px 27px}#reader h2{font-size:26px}#reader p{font-size:15px}dialog{padding:35px 25px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}dialog::backdrop{backdrop-filter:none}}
+/* 继承潮汐稿的排版和主题，只让照料入口与植物成为这轮体验的中心。 */
+.eyebrow,.article-label,.island-label,#mobile-articles{display:none!important}
+header .status{font-size:11px}#intro{top:23vh;max-width:245px}#intro h1{font-size:clamp(28px,3vw,42px);letter-spacing:2px}#description{font-size:13px;line-height:2}#nearby{bottom:110px;width:170px}#hint{display:none}
+#care-panel{position:fixed;z-index:5;left:57%;bottom:100px;transform:translateX(-50%);text-align:center;width:min(430px,90vw);pointer-events:none}#care-note{font:17px/1.7 var(--serif);margin:0 0 15px;color:var(--ink)}.care-actions{display:flex;justify-content:center;align-items:center;gap:25px;pointer-events:auto}#water{background:var(--paper);color:var(--paper-ink);border-radius:30px;padding:12px 23px;display:flex;align-items:center;gap:9px;min-height:46px;transition:background .2s,transform .2s}#water:not(:disabled):hover{transform:translateY(-2px)}#water:disabled{opacity:.7}#water svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.4}#visit{font-size:12px;text-decoration:none;text-underline-offset:6px;padding:12px 0;border-bottom:1px solid var(--line);color:var(--ink)}#visit:hover{border-color:var(--gold)}#care-detail{font-size:11px;color:var(--muted);margin:13px 0 0}#presence{position:fixed;z-index:5;right:35px;top:75px;color:var(--muted);font-size:12px;text-align:right;pointer-events:none}#trace{position:fixed;z-index:5;left:6.2vw;top:calc(23vh + 225px);font-size:11px;color:var(--gold);max-width:215px;line-height:1.9;pointer-events:none}
+#plant-target{position:fixed;z-index:4;pointer-events:none;transform:translate(-50%,-50%)}#plant-hit{display:block;width:100%;height:100%;pointer-events:auto;border-radius:50%;padding:0}#plant-hit:focus-visible{outline-offset:8px}#plant-caption{position:absolute;top:100%;left:50%;transform:translateX(-50%);white-space:nowrap;font:11px/1.8 sans-serif;color:var(--gold);opacity:0;transition:opacity .2s}#plant-target:hover #plant-caption,#plant-target:focus-within #plant-caption{opacity:1}body:not(.near) #plant-caption{opacity:.8}
+::selection{background:var(--gold);color:var(--bg)}:root{scrollbar-color:var(--muted) var(--bg)}
+@media(max-width:850px){#intro{left:26px;max-width:180px}#trace{left:26px;max-width:165px}#presence{right:24px}}
+@media(max-width:580px){#intro{top:105px;left:24px;max-width:270px}#intro h1{font-size:28px;margin-bottom:9px}#description{font-size:12px;max-width:250px}#approach{margin-top:9px}body.near #description{display:block}#trace{top:auto;bottom:260px;left:24px;max-width:75vw;font-size:10px}#nearby{display:none}#care-panel{left:50%;bottom:94px;width:92vw}#care-note{font-size:16px;margin-bottom:10px}.care-actions{gap:22px}#care-detail{font-size:10px}#presence{top:64px;right:21px;font-size:10px}#offline{display:none}#water{padding:11px 19px}footer .footnote{max-width:115px}#plant-caption{display:none}}
+
+</style>
+</head>
+<body>
+<canvas id="sea" aria-hidden="true"></canvas><canvas id="land" tabindex="0" aria-label="粒子群岛，拖动探索，滚轮靠近。也可使用附近岛屿与缩放按钮。"></canvas><canvas id="air" aria-hidden="true"></canvas>
+<div id="labels"></div>
+<header><button class="brand" id="brand" aria-label="回到初始视角">pulse<small id="edition">潮汐之间</small></button><nav class="tools" aria-label="显示设置"><button id="theme">跟随系统</button><button id="language">EN</button><button id="help">玩法</button><span class="status" id="offline">离线预览</span></nav></header>
+<section id="intro"><p class="eyebrow" id="eyebrow">海上手记</p><h1 id="headline">潮汐之间</h1><p id="description">让岛屿相隔远一点，<br>让一个念头，有停留的地方。</p><button id="approach"><span id="approach-text">走近我的岛</span><span aria-hidden="true">↘</span></button></section>
+<nav id="nearby" aria-label="附近岛屿"><h2 id="nearby-title">海的另一边</h2></nav>
+<div id="mobile-articles" aria-label="岛上的文章"></div>
+<p id="hint">拖动漫游 · 滚轮靠近 · 点击岛屿</p>
+<footer><div class="footnote"><div class="coordinates" id="coordinates">000 / 000</div><div id="fixture">独立概念稿 · 示例文章</div></div><div class="zoom"><button id="minus" aria-label="拉远">−</button><output id="zoom">1.0×</output><button id="plus" aria-label="靠近">+</button><button id="home">归处</button></div></footer>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="plant-target"><button id="plant-hit" aria-label="为植物浇水"></button><span id="plant-caption"></span></div>
+<section id="care-panel" aria-label="照料植物"><p id="care-note" aria-live="polite"></p><div class="care-actions"><button id="water"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C10 7 5 11 5 15a7 7 0 0 0 14 0c0-4-5-8-7-12Z"/></svg><span id="water-label"></span></button><a id="visit" href="/?visitor=1" target="_blank" rel="noopener"></a></div><p id="care-detail"></p></section>
+<p id="presence" role="status"></p><p id="trace"></p>
+<dialog id="reader" aria-labelledby="article-title"><button class="close" id="close-reader" aria-label="关闭阅读">×</button><span class="dialog-label" id="article-meta"></span><h2 id="article-title"></h2><div class="rule"></div><div id="article-body"></div><p class="reader-end" id="reader-end"></p><button class="next" id="next-article"></button></dialog>
+<dialog id="about" aria-labelledby="about-title"><button class="close" id="close-about" aria-label="关闭">×</button><span class="dialog-label">PULSE</span><h2 id="about-title">在潮汐之间漫游</h2><div id="about-copy"></div></dialog>
+<script>
+'use strict';
+/* 2026-09-09 独立原创视觉稿。参考 yamiblog.me 的轻界面；
+   空间留白参考 Townscaper / Dorfromantik，点阵水面参考 Three.js points waves。
+   全部几何为原创示例；互动层可连接配套的本地服务，同步真实窗口指针并保存植物状态。 */
+// 按本文件固定 ID 取元素，避免重复书写 DOM 查询。
+const $ = document.getElementById.bind(document);
+const TAU=Math.PI*2, reduced=matchMedia('(prefers-reduced-motion: reduce)'), systemTheme=matchMedia('(prefers-color-scheme: dark)');
+const sea=$('sea'), land=$('land'), air=$('air'), gl=sea.getContext('webgl',{alpha:false,antialias:false,powerPreference:'low-power'}),sc=gl?null:sea.getContext('2d'),lc=land.getContext('2d'),ac=air.getContext('2d');
+let waterProgram=null,waterUniforms=null,waterCount=0,waterBuffer=null;
+const palette={dark:{bg:'#091c20',sea:[85,139,145],foam:[158,204,195],shore:[208,194,153],land:[125,166,151],contour:[112,171,154],solid:'#102b2c',paper:'#cbd9bd',ink:'#385c52',gold:'#e7c68f',shadow:'#031317'},light:{bg:'#e5eee8',sea:[71,125,125],foam:[99,145,131],shore:[120,105,67],land:[78,129,106],contour:[54,110,93],solid:'#d1e0cc',paper:'#faf5df',ink:'#527359',gold:'#816039',shadow:'#adccc1'}};
+const copy={zh:{edition:'潮汐之间',eyebrow:'海上手记',headline:'潮汐之间',description:'让岛屿相隔远一点，\n让一个念头，有停留的地方。',approach:'走近我的岛',back:'回到海上',nearby:'海的另一边',help:'玩法',offline:'离线预览',fixture:'独立概念稿 · 示例文章',hint:'拖动漫游 · 滚轮靠近 · 点击岛屿',nearHint:'点开一页文字 · 向后滚动回到海上',home:'归处',auto:'跟随系统',dark:'深色',light:'浅色',nearDesc:'潮声很轻。这里有三篇短文，\n选一篇，停留一会儿。',articles:'三篇短文',read:'打开阅读 ↗',sample:'示例短文',minutes:'分钟',next:'下一篇',end:'写在这里，也留在这里。',aboutTitle:'在潮汐之间漫游',about:'<p>拖动海面探索，滚轮或双指缩放。点一座岛，镜头会连续下降；靠近后，点书页或标题阅读。</p><p>方向键可移动，＋ / − 可缩放，Esc 返回远景。右上角可切换明暗与语言；语言切换仅演示界面和本地双语示例。</p><p>这是离线视觉稿。岛屿与文章均为示例，没有连接多人服务。减少动态的系统设置会暂停海浪并关闭镜头缓动。</p><p>设计参考：<a href="https://yamiblog.me/" target="_blank" rel="noreferrer">PULSE 原站</a> · <a href="https://www.townscapergame.com/" target="_blank" rel="noreferrer">Townscaper</a> · <a href="https://www.toukana.com/dorfromantik" target="_blank" rel="noreferrer">Dorfromantik</a> · <a href="https://threejs.org/examples/webgl_points_waves.html" target="_blank" rel="noreferrer">粒子波浪</a></p>',names:['你的原点','雨后手记','远山来信'],title:['把一段时间放在这里','潮水退去之后','有些相遇，不需要说话'],tags:['随笔','观察','生活'],body:[['今天没有发生什么值得郑重记录的大事。窗外下了一会儿雨，杯子里的茶凉了，读到一段喜欢的话，又翻回去看了一遍。','但我还是想把这段时间放在这里。像在海边捡到一块形状普通的石头，因为当时握在手里的温度，决定带它回家。','也许很多年以后，留下来的并不是某个答案，而是一个很轻的下午。'],['潮水退去以后，岸边的纹路才慢慢显出来。细沙上有蜿蜒的线，浅水里留下小小的涡流。原来平静的表面，也记得经过它的东西。','我想做一个这样的地方。远看安静，走近了，能发现有人在这里停留过。','文章可以短一点，更新可以慢一点。重要的是，那些真正想留下的东西，能有自己的位置。'],['有时候，只是知道有人也在，就很好。','不一定要立刻打招呼。你沿着岸线走，我在这边读一页书。光标从旁边经过，像一阵有方向的风。','等想说话的时候，再说也来得及。这个地方很大，我们可以慢慢认识。']]},en:{edition:'BETWEEN TIDES',eyebrow:'NOTES AT SEA',headline:'Between tides',description:'A little more space between islands.\nA place for a thought to stay.',approach:'Approach my island',back:'Back to the sea',nearby:'ACROSS THE WATER',help:'Guide',offline:'Offline preview',fixture:'Concept study · Sample stories',hint:'Drag to wander · Scroll to approach · Select an island',nearHint:'Open a story · Scroll back to the sea',home:'Home',auto:'System',dark:'Dark',light:'Light',nearDesc:'The tide is quiet here.\nChoose a story. Stay a little.',articles:'Three stories',read:'Read story ↗',sample:'Sample story',minutes:'min',next:'Next story',end:'A little of this day, kept here.',aboutTitle:'Wander between tides',about:'<p>Drag to explore. Scroll or pinch to move closer. Select an island for a continuous descent, then open a page to read.</p><p>Arrow keys move, + / − zoom, and Escape returns to the sea. Theme and language controls are above. The system reduced-motion setting pauses waves and camera easing.</p><p>This is an offline visual study. Islands and bilingual stories are samples. No multiplayer connection is simulated.</p><p>References: <a href="https://yamiblog.me/" target="_blank" rel="noreferrer">PULSE</a> · <a href="https://www.townscapergame.com/" target="_blank" rel="noreferrer">Townscaper</a> · <a href="https://www.toukana.com/dorfromantik" target="_blank" rel="noreferrer">Dorfromantik</a> · <a href="https://threejs.org/examples/webgl_points_waves.html" target="_blank" rel="noreferrer">Particle waves</a></p>',names:['Your origin','After the rain','Letters from afar'],title:['Keeping a little of today','After the tide','Some encounters need no words'],tags:['NOTES','OBSERVATIONS','LIFE'],body:[['Nothing remarkable happened today. Rain brushed the window, my tea cooled, and I turned back to read a sentence I liked.','Still, I wanted to keep this small piece of time. Like an ordinary stone found on the shore, worth taking home for the warmth it held in your hand.','Perhaps, years from now, what remains will not be an answer. Just a quiet afternoon.'],['When the tide withdrew, the patterns of the shore appeared. Wandering lines in the sand. Small eddies in the shallows. Even a quiet surface remembers what has passed over it.','I wanted to make a place like that. Calm from a distance, full of traces when you come closer.','The stories can be short. The updates can be slow. What matters is a place for the things we choose to keep.'],['Sometimes, simply knowing someone else is here is enough.','We do not need to say hello at once. You follow the shoreline while I read a page. A cursor drifts past, like a breeze with a direction.','We can talk when we feel like it. There is plenty of room here. We have time.']]}};
+let W=innerWidth,H=innerHeight,F=H,theme='auto',lang='zh',P=palette.dark,raf=0,last=0,lastSea=0,time=0,dirty=true,paintCount=0,currentArticle=0,nearState=false,toastTimer;
+const camera={x:0,y:15,d:850},target={...camera},gesture=new Map();
+let zoomAnchor=null,flight=false,dragMoved=false,down=null,hover=-1,selected=0;
+const islands=[{x:0,y:0,r:242,sy:.74,rot:-.35,seed:4},{x:-3100,y:-1500,r:181,sy:.70,rot:.4,seed:12},{x:3050,y:-1300,r:212,sy:.76,rot:-.7,seed:21}];
+const books=[{x:-95,y:-25,z:22,angle:-.28,w:27,h:36},{x:-15,y:88,z:30,angle:.15,w:27,h:36},{x:95,y:-55,z:38,angle:-.12,w:27,h:36}];
+const islandLabels=[],articleLabels=[],mobileButtons=[],nearbyButtons=[],hits=[];
+const stats={landPaints:0,seaMs:0,landMs:0,seaPoints:0};
+// clamp 限制视觉参数；不修改输入。
+function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
+// smooth 在区间内生成无突变的细节渐显权重。
+function smooth(a,b,x){const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);}
+// hash 由整数坐标确定粒子分布，缩放或返回时不会重新随机。
+function hash(x,y,s=0){let n=Math.imul(x|0,374761393)^Math.imul(y|0,668265263)^Math.imul(s|0,1442695041);n=Math.imul(n^(n>>>13),1274126177);return((n^(n>>>16))>>>0)/4294967296;}
+// rgba 根据当前主题生成带透明度的绘制颜色。
+function rgba(rgb,a){return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${clamp(a,0,1)})`;}
+// remember 对 file:// 下可能不可用的本地存储进行降级，不阻断体验。
+function remember(key,value){try{if(value===undefined)return localStorage.getItem('pulse-garden-'+key);localStorage.setItem('pulse-garden-'+key,value);}catch{}return null;}
+// boundary 定义柔和的不规则岸线；角度以弧度计，返回半径倍率。
+function boundary(a,s){return 1+.11*Math.sin(3*a+s)+.065*Math.cos(5*a-s*.3)+.04*Math.sin(2*a+s);}
+// localWorld 将岛的局部坐标变为稳定世界坐标，高度独立于相机。
+function localWorld(s,x,y,z){const c=Math.cos(s.rot),sn=Math.sin(s.rot);return{x:s.x+x*c-y*sn,y:s.y+x*sn+y*c,z};}
+// terrainHeight 返回岛面高度；岸边接近海面，内侧起伏连续。
+function terrainHeight(s,x,y){const a=Math.atan2(y/s.sy,x),r=Math.hypot(x,y/s.sy)/(s.r*boundary(a,s.seed));return 5+57*Math.pow(Math.max(0,1-r*r),1.6)+20*Math.exp(-((x+55)**2/8500+(y+40)**2/3300));}
+// project 使用同一透视映射绘制海水、陆地、书页；高度会改变大小与位置。
+function project(x,y,z=0){const dx=x-camera.x,dy=y-camera.y,curve=(dx*dx+dy*dy)/13500,h=z-curve,tilt=.36+.38*(1-smooth(460,1150,camera.d)),si=Math.sin(tilt),co=Math.cos(tilt),d=camera.d-dy*si-h*co;if(d<45)return null;const scale=F/d;return{x:W*.57+dx*scale,y:H*.55+(dy*co-h*si)*scale,s:scale,d};}
+// unprojectSea 通过局部数值迭代反解海平面；用于鼠标锚定和拖动，失败时保留有限值。
+function unprojectSea(sx,sy){let x=camera.x+(sx-W*.57)*camera.d/F,y=camera.y+(sy-H*.55)*camera.d/F;for(let i=0;i<7;i++){const p=project(x,y),px=project(x+1,y),py=project(x,y+1);if(!p||!px||!py)break;const ex=sx-p.x,ey=sy-p.y,a=px.x-p.x,b=py.x-p.x,c=px.y-p.y,d=py.y-p.y,det=a*d-b*c;if(Math.abs(det)<.00001)break;x+=clamp((ex*d-ey*b)/det,-2000,2000);y+=clamp((ey*a-ex*c)/det,-2000,2000);}return{x,y};}
+// pointAt 投影岛内位置，让命中和绘制共享同一套坐标。
+function pointAt(s,x,y,z){const p=localWorld(s,x,y,z);return project(p.x,p.y,p.z);}
+// landPoint 把岸线参数转成岛面三维坐标。
+function landPoint(s,a,r){const radius=s.r*boundary(a,s.seed)*r,x=Math.cos(a)*radius,y=Math.sin(a)*radius*s.sy;return localWorld(s,x,y,terrainHeight(s,x,y));}
+// buildIsland 只在初始化时生成细粒与轮廓；返回的缓存不会随缩放重建。
+function buildIsland(s){const points=[],rings=[];for(let y=-s.r;y<s.r;y+=3.7){for(let x=-s.r*1.25;x<s.r*1.25;x+=3.7){const a=Math.atan2(y/s.sy,x),r=Math.hypot(x,y/s.sy)/(s.r*boundary(a,s.seed));if(r>1.13)continue;const n=hash(Math.round(x*10),Math.round(y*10),s.seed);if(r>1&&n>(1.13-r)*5)continue;const px=x+(n-.5)*3,py=y+(hash(x*10,y*10,33)-.5)*3,z=terrainHeight(s,px,py);points.push({...localWorld(s,px,py,z),r,n});}}for(let j=1;j<=23;j++){const r=j/23,ring=[];for(let k=0;k<=144;k++)ring.push(landPoint(s,k/144*TAU,r));rings.push(ring);}s.points=points;s.rings=rings;}
+// 初始化粒子缓存与可键盘访问的岛屿入口；点击沿当前镜头出发。
+for(let i=0;i<islands.length;i++){const s=islands[i];buildIsland(s);const b=document.createElement('button');b.className='island-label';b.innerHTML='<span class="name"></span><span class="sub"></span>';
+ // 选岛只改变本地镜头目标，不访问外部服务。
+ b.addEventListener('click',()=>approachIsland(i));$('labels').append(b);islandLabels.push(b);const n=document.createElement('button');n.innerHTML='<span></span><span class="small-arrow">↗</span>';
+ // 附近列表是画布入口的等价键盘路径。
+ n.addEventListener('click',()=>approachIsland(i));$('nearby').append(n);nearbyButtons.push(n);}
+// 为三篇本地示例创建清晰的 DOM 标题与手机备用入口。
+for(let i=0;i<books.length;i++){const b=document.createElement('button');b.className='article-label';b.innerHTML='<span class="meta"></span><span class="name"></span><span class="more"></span>';
+ // 标题打开对应索引的文章，避免用亮点模糊猜测命中。
+ b.addEventListener('click',()=>openArticle(i));$('labels').append(b);articleLabels.push(b);const m=document.createElement('button');
+ // 窄屏可通过底部短标题打开完整阅读。
+ m.addEventListener('click',()=>openArticle(i));$('mobile-articles').append(m);mobileButtons.push(m);}
+// setTheme 应用主题并记忆用户选择；海浪与岛屿颜色同步更新。
+function setTheme(mode){theme=mode;const actual=mode==='auto'?(systemTheme.matches?'dark':'light'):mode;document.documentElement.dataset.theme=actual;P=palette[actual];remember('theme',mode);$('theme').textContent=copy[lang][mode];dirty=true;lastSea=0;wake();}
+// updateText 只更新界面及本地双语样例，不声称翻译用户文章。
+function updateText(){const c=copy[lang];document.documentElement.lang=lang==='zh'?'zh-CN':'en';document.title='PULSE · '+c.edition;for(const [id,key] of [['edition','edition'],['eyebrow','eyebrow'],['nearby-title','nearby'],['help','help'],['offline','offline'],['fixture','fixture'],['home','home'],['about-title','aboutTitle']])$(id).textContent=c[key];$('about-copy').innerHTML=c.about;$('language').textContent=lang==='zh'?'EN':'中文';$('theme').textContent=c[theme];$('minus').ariaLabel=lang==='zh'?'拉远':'Zoom out';$('plus').ariaLabel=lang==='zh'?'靠近':'Zoom in';$('close-reader').ariaLabel=lang==='zh'?'关闭阅读':'Close reading';$('close-about').ariaLabel=lang==='zh'?'关闭':'Close';land.ariaLabel=lang==='zh'?'粒子群岛；拖动探索、滚轮靠近，亦可用附近岛屿按钮。':'Particle islands. Drag to explore, scroll to approach, or use the island buttons.';for(let i=0;i<3;i++){islandLabels[i].querySelector('.name').textContent=c.names[i];islandLabels[i].querySelector('.sub').textContent=c.articles;nearbyButtons[i].firstElementChild.textContent=c.names[i];articleLabels[i].querySelector('.meta').textContent=c.tags[i]+' · 2 '+c.minutes;articleLabels[i].querySelector('.name').textContent=c.title[i];articleLabels[i].querySelector('.more').textContent=c.read;mobileButtons[i].textContent=c.title[i];}updateMode(true);if(gardenReady)gardenText();if($('reader').open)fillArticle();dirty=true;wake();}
+// updateMode 在连续距离上切换辅助文字；不替换场景或改变拖动语义。
+function updateMode(force=false){const next=camera.d<680;if(next===nearState&&!force)return;nearState=next;document.body.classList.toggle('near',next);const c=copy[lang];$('headline').textContent=next?c.names[selected]:c.headline;$('description').innerText=next?c.nearDesc:c.description;$('approach-text').textContent=next?c.back:c.approach;$('hint').textContent=next?c.nearHint:c.hint;for(let i=0;i<3;i++)nearbyButtons[i].classList.toggle('current',i===selected);if(gardenReady)gardenActionText();}
+// resize 让视口和像素密度匹配；缩放相机保持世界位置不变。
+function resize(){W=innerWidth;H=innerHeight;F=Math.min(H*1.10,W*1.3);const dpr=Math.min(devicePixelRatio||1,1.7);for(const [can,ctx] of [[sea,sc],[land,lc],[air,ac]]){can.width=Math.round(W*dpr);can.height=Math.round(H*dpr);if(ctx)ctx.setTransform(dpr,0,0,dpr,0,0);}if(gl){gl.viewport(0,0,sea.width,sea.height);initWater();}dirty=true;lastSea=0;wake();}
+// shader 编译本文件内的着色器；编译失败立即报告，而不是继续使用无效程序。
+function shader(type,source){const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+// initWater 将海面粒子交给 GPU，避免密集海浪在 CPU 上逐点重绘；不加载任何外部库。
+function initWater(){if(waterProgram){gl.deleteProgram(waterProgram);gl.deleteBuffer(waterBuffer);}const vs=shader(gl.VERTEX_SHADER,`
+ attribute vec2 grid;uniform vec2 origin;uniform vec3 cam;uniform vec2 viewport;uniform vec3 waterColor;uniform vec3 foamColor;uniform float stepSize,detail,time,focal,dpr,tilt;varying vec4 color;
+ void main(){vec2 ij=grid+origin;vec2 p=ij*stepSize;float n=fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);p+=(n-.5)*1.6;
+ float a=p.x*.012+p.y*.008-time*.62;
+ float b=p.y*.022-p.x*.006-time*.43;
+ float nearDetail=1.-smoothstep(420.,1100.,cam.z);
+ float h=sin(a)*19.+sin(b)*8.+sin(p.x*.056+p.y*.034-time*1.05)*2.8*nearDetail;
+ float crest=pow(max(0.,(sin(a)*.7+sin(b)*.3)),3.);vec2 rel=p-cam.xy;h-=dot(rel,rel)/13500.;float dep=cam.z-rel.y*sin(tilt)-h*cos(tilt);float scale=focal/max(dep,45.);
+ vec2 screen=vec2(viewport.x*.57,viewport.y*.55)+vec2(rel.x,rel.y*cos(tilt)-h*sin(tilt))*scale;
+ gl_Position=vec4(screen.x/viewport.x*2.-1.,1.-screen.y/viewport.y*2.,0.,1.);gl_PointSize=clamp(scale*(1.2+crest*.8),.8,2.6)*dpr;
+ float fine=step(.5,mod(abs(ij.x),2.)+mod(abs(ij.y),2.));float opacity=mix(1.,detail,fine)*(.065+crest*.38+n*.045)*clamp(cam.z/dep,.12,1.25);if(dep<45.)opacity=0.;
+ color=vec4(mix(waterColor,foamColor,crest*.8),opacity);}
+ `);const fs=shader(gl.FRAGMENT_SHADER,`precision mediump float;varying vec4 color;void main(){float r=length(gl_PointCoord-.5);gl_FragColor=vec4(color.rgb,color.a*(1.-smoothstep(.20,.5,r)));}`);waterProgram=gl.createProgram();gl.attachShader(waterProgram,vs);gl.attachShader(waterProgram,fs);gl.linkProgram(waterProgram);if(!gl.getProgramParameter(waterProgram,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(waterProgram));gl.deleteShader(vs);gl.deleteShader(fs);gl.useProgram(waterProgram);const coords=[],nx=Math.min(460,Math.ceil(Math.max(W/H,1)*205)),ny=300;for(let y=-ny;y<=ny;y++)for(let x=-nx;x<=nx;x++)coords.push(x,y);waterCount=coords.length/2;waterBuffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,waterBuffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(coords),gl.STATIC_DRAW);const attr=gl.getAttribLocation(waterProgram,'grid');gl.enableVertexAttribArray(attr);gl.vertexAttribPointer(attr,2,gl.FLOAT,false,0,0);waterUniforms={};for(const name of ['origin','cam','viewport','waterColor','foamColor','stepSize','detail','time','focal','dpr','tilt'])waterUniforms[name]=gl.getUniformLocation(waterProgram,name);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);}
+// drawWaterGPU 使用稳定的嵌套网格渐显细节，镜头穿越倍率边界时不会整片换点。
+function drawWaterGPU(t){const start=performance.now();if(!waterProgram||gl.isContextLost())return;const u=waterUniforms,coarse=8*2**Math.ceil(Math.log2(camera.d/700)),step=coarse/2,upper=700*coarse/8,detail=1-smooth(upper/2,upper,camera.d),bg=P.bg.match(/\w\w/g);gl.clearColor(parseInt(bg[0],16)/255,parseInt(bg[1],16)/255,parseInt(bg[2],16)/255,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(waterProgram);gl.uniform2f(u.origin,Math.floor(camera.x/step/16)*16,Math.floor(camera.y/step/16)*16);gl.uniform3f(u.cam,camera.x,camera.y,camera.d);gl.uniform2f(u.viewport,W,H);gl.uniform3f(u.waterColor,...P.sea.map(v=>v/255));gl.uniform3f(u.foamColor,...P.foam.map(v=>v/255));gl.uniform1f(u.stepSize,step);gl.uniform1f(u.detail,detail);gl.uniform1f(u.time,t);gl.uniform1f(u.focal,F);gl.uniform1f(u.dpr,sea.width/W);gl.uniform1f(u.tilt,.36+.38*(1-smooth(460,1150,camera.d)));gl.drawArrays(gl.POINTS,0,waterCount);stats.seaMs=performance.now()-start;stats.seaPoints=waterCount;land.dataset.waterMs=stats.seaMs.toFixed(2);land.dataset.waterPoints=waterCount;land.dataset.waterRenderer='webgl';}
+// drawLine 绘制共享世界坐标的线条；近裁剪以断线处理，避免跨屏尖刺。
+function drawLine(ctx,points,color,width=1,closed=false){ctx.beginPath();let open=false;for(const p of points){const q=project(p.x,p.y,p.z);if(!q){open=false;continue;}if(!open){ctx.moveTo(q.x,q.y);open=true;}else ctx.lineTo(q.x,q.y);}if(closed)ctx.closePath();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();}
+// polygon 以实际透视顶点绘制面，用于岛的轻底色和书页，不做屏幕贴图缩放。
+function polygon(ctx,points,fill,stroke,width=.7){const q=[];for(const p of points){const v=project(p.x,p.y,p.z);if(!v)return;q.push(v);}ctx.beginPath();q.forEach((p,i)=>{if(i)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.closePath();if(fill){ctx.fillStyle=fill;ctx.fill();}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=width;ctx.stroke();}return q;}
+// seaHeight 返回数个不同方向、波长的叠加波；单位是世界高度。
+function seaHeight(x,y,t){return Math.sin(x*.012+y*.008-t*.62)*19+Math.sin(y*.022-x*.006-t*.43)*8+Math.sin(x*.056+y*.034-t*1.05)*2.8*(1-smooth(420,1100,camera.d));}
+// drawSea 海水使用稳定网格与轻微扰动；点的高度和亮度随波峰推进，不随机闪烁。
+function drawSea(t){if(gl){drawWaterGPU(t);return;}const start=performance.now();sc.fillStyle=P.bg;sc.fillRect(0,0,W,H);const b=sc.createRadialGradient(W*.59,H*.45,0,W*.56,H*.52,Math.max(W,H)*.75);b.addColorStop(0,rgba(P.sea,.11));b.addColorStop(1,rgba(P.sea,0));sc.fillStyle=b;sc.fillRect(0,0,W,H);const extent=Math.min(3900,camera.d*2.5);let count=0;
+ // 新增网格只填入旧网格的空隙并渐显；粒子在倍率边界保持位置连续。
+ for(let level=0;level<3;level++){const step=38/2**level,detail=level===0?1:level===1?1-smooth(650,1150,camera.d):1-smooth(310,680,camera.d);if(detail<.005)continue;const unit=4/2**level,x0=Math.floor((camera.x-extent)/step),x1=Math.ceil((camera.x+extent)/step),y0=Math.floor((camera.y-extent)/step),y1=Math.ceil((camera.y+extent)/step);
+ for(let iy=y0;iy<=y1;iy++){for(let ix=x0;ix<=x1;ix++){if(level>0&&ix%2===0&&iy%2===0)continue;const n=hash(ix*unit,iy*unit,19),x=ix*step+(n-.5)*3,y=iy*step+(hash(ix*unit,iy*unit,7)-.5)*3,z=seaHeight(x,y,t),p=project(x,y,z);if(!p||p.x<0||p.x>W||p.y<0||p.y>H)continue;const wave=Math.sin(x*.012+y*.008-t*.62)*.7+Math.sin(y*.022-x*.006-t*.43)*.3,crest=Math.pow(Math.max(0,wave),3),fog=clamp(camera.d/p.d,.12,1.2),a=(.065+crest*.38+n*.045)*fog*detail;sc.fillStyle=rgba(crest>.45?P.foam:P.sea,a);const size=clamp(p.s*(1.05+crest*.9),.7,2.25);sc.fillRect(p.x,p.y,size,size);count++;}}}
+ // 少量长波线把离散粒子组织为水面；远近共用同一波场坐标。
+ for(let row=-12;row<=12;row++){const base=Math.floor(camera.y/150)*150+row*150;sc.beginPath();let open=false;for(let j=-65;j<=65;j++){const x=camera.x+j*extent/65,y=base+Math.sin(x*.004+t*.22+row)*34,z=seaHeight(x,y,t),p=project(x,y,z);if(!p){open=false;continue;}if(!open){sc.moveTo(p.x,p.y);open=true;}else sc.lineTo(p.x,p.y);}sc.strokeStyle=rgba(P.sea,.09);sc.lineWidth=.65;sc.stroke();}
+ stats.seaPoints=count;stats.seaMs=performance.now()-start;land.dataset.waterMs=stats.seaMs.toFixed(2);land.dataset.waterPoints=count;}
+// bookWorld 返回书页局部顶点；书页有轻微角度及离地高度。
+function bookWorld(s,b,x,y,z=0){const c=Math.cos(b.angle),sn=Math.sin(b.angle);return localWorld(s,b.x+x*c-y*sn,b.y+x*sn+y*c,terrainHeight(s,b.x,b.y)+b.z+z);}
+// drawBook 绘制纸张厚度、折角、排版线及其接地影子；同时登记四边形命中。
+function drawBook(s,b,index,alpha){return;if(alpha<.01)return;lc.save();lc.globalAlpha=alpha;const w=b.w/2,h=b.h/2,corners=[[-w,-h],[w,-h],[w,h],[-w,h]],pts=[],back=[],shadow=[];for(const [x,y]of corners){pts.push(bookWorld(s,b,x,y));back.push(bookWorld(s,b,x+1.6,y+2.6,-2.4));const p=bookWorld(s,b,x+8,y+12);p.z=terrainHeight(s,b.x,b.y)+1;shadow.push(p);}lc.globalAlpha=alpha*.34;polygon(lc,shadow,P.shadow);lc.globalAlpha=alpha;polygon(lc,back,rgba(P.land,.55),rgba(P.foam,.26));const quad=polygon(lc,pts,P.paper,rgba(P.foam,.8));if(quad)hits.push({index,points:quad});const fold=[bookWorld(s,b,w-7,-h),bookWorld(s,b,w,-h+7),bookWorld(s,b,w-7,-h+7)];polygon(lc,fold,rgba(P.land,.42));drawLine(lc,[bookWorld(s,b,-w+5,-h+8,.1),bookWorld(s,b,-w+13,-h+8,.1)],P.gold,1.5);for(let j=0;j<5;j++){const len=j===4?9:16;drawLine(lc,[bookWorld(s,b,-w+5,-h+14+j*3,.1),bookWorld(s,b,-w+5+len,-h+14+j*3,.1)],P.ink,.65);}lc.restore();}
+// drawIsland 先绘制海拔轮廓，再叠加固定的粒子地形；近景才增加文章细节。
+function drawIsland(s,index){if(index!==selected && Math.hypot(s.x-camera.x,s.y-camera.y)>camera.d*1.8)return;const center=project(s.x,s.y,28);if(!center||center.x<-s.r*center.s-100||center.x>W+s.r*center.s+100||center.y<-s.r*center.s-100||center.y>H+s.r*center.s+100)return;const alpha=clamp(center.s*.9,.15,1);lc.save();const outer=s.rings[s.rings.length-1];polygon(lc,outer,P.solid);
+ for(let i=0;i<s.rings.length;i++){const a=i/s.rings.length;drawLine(lc,s.rings[i],rgba(a>.87?P.shore:P.contour,(a>.87?.43:.15)*alpha),a>.95?1:.6,true);}
+ for(let i=0;i<s.points.length;i++){const pt=s.points[i];const lod=i%3===0?1:smooth(.22,.58,center.s);if(lod<.01)continue;const p=project(pt.x,pt.y,pt.z);if(!p||p.x<-3||p.x>W+3||p.y<-3||p.y>H+3)continue;const coast=pt.r>.87,light=.22+pt.n*.42+(pt.z/80)*.2,size=clamp((coast?.95:.75)*p.s,.6,2.2);lc.fillStyle=rgba(coast?P.shore:P.land,light*alpha*lod*(pt.r>1?.45:1));lc.fillRect(p.x,p.y,size,size);}
+ // 近处的三条点状路径把文章与岸线连接，路径本身保持克制。
+ const close=0;if(false){for(let i=0;i<books.length;i++){const b=books[i];for(let k=0;k<34;k++){const q=k/33,x=b.x+(Math.sin(q*Math.PI)*26)*(i-1),y=b.y+q*78,z=terrainHeight(s,x,y)+2,p=pointAt(s,x,y,z);if(!p)continue;lc.fillStyle=rgba(P.shore,.18*close);lc.fillRect(p.x,p.y,clamp(p.s*.65,.6,1.4),clamp(p.s*.65,.6,1.4));}drawBook(s,b,i,.45+.55*close);}}
+ lc.restore();}
+// drawLand 静态地形只在镜头、语言或主题变化时重绘；波浪另层运行。
+function drawLand(){const start=performance.now();lc.clearRect(0,0,W,H);hits.length=0;const order=[0,1,2];
+ // 以相机深度从远到近绘制，使岛屿遮挡顺序稳定。
+ order.sort((a,b)=>(project(islands[b].x,islands[b].y)?.d||0)-(project(islands[a].x,islands[a].y)?.d||0));for(const i of order)drawIsland(islands[i],i);stats.landPaints=++paintCount;stats.landMs=performance.now()-start;}
+// drawAir 绘制贴岸的进退浪沫及少量高处漂尘；不在每个粒子上使用模糊滤镜。
+function drawAir(t){ac.clearRect(0,0,W,H);for(let i=0;i<islands.length;i++){const s=islands[i],c=project(s.x,s.y);if(!c)continue;const visible=clamp(c.s,.1,1);for(let ring=0;ring<3;ring++){const phase=(t*.055+ring/3)%1,r=1.02+(1-phase)*.37,a=Math.sin(phase*Math.PI)*.30*visible;for(let j=0;j<210;j++){const ang=j/210*TAU,n=hash(j,ring,s.seed),radius=s.r*boundary(ang,s.seed)*r,p=localWorld(s,Math.cos(ang)*radius,Math.sin(ang)*radius*s.sy,seaHeight(s.x+radius*Math.cos(ang),s.y+radius*Math.sin(ang),t)),q=project(p.x,p.y,p.z);if(!q||q.x<-3||q.x>W+3||q.y<-3||q.y>H+3)continue;ac.fillStyle=rgba(P.foam,a*(.45+n*.55));const size=clamp(q.s*(.5+n*.5),.5,2);ac.fillRect(q.x,q.y,size,size);}}
+ // 漂尘与岛共享世界位置；高度不同，自然产生快慢不同的靠近效果。
+ for(let j=0;j<32;j++){const n=hash(j,7,s.seed),ang=n*TAU,r=s.r*(.6+hash(j,2,s.seed)*.65),x=Math.cos(ang)*r,y=Math.sin(ang)*r*s.sy,z=55+hash(j,6,s.seed)*95+Math.sin(t*.4+j)*4,p=pointAt(s,x,y,z);if(!p||p.x<0||p.x>W||p.y<0||p.y>H)continue;ac.fillStyle=rgba(P.shore,(.08+.12*n)*visible);ac.beginPath();ac.arc(p.x,p.y,clamp(p.s*(.5+n*.7),.5,2.3),0,TAU);ac.fill();}}
+ if(hover>=0){const s=islands[selected],b=books[hover],p=pointAt(s,b.x,b.y,terrainHeight(s,b.x,b.y)+b.z);if(p){ac.strokeStyle=rgba(P.shore,.5);ac.lineWidth=.7;ac.beginPath();ac.ellipse(p.x,p.y+10*p.s,24*p.s,15*p.s,0,0,TAU);ac.stroke();}}}
+// positionLabels 将 DOM 标签放到同一透视坐标，隐藏离屏入口，保留列表可访问性。
+function positionLabels(){const reserved=$('intro').getBoundingClientRect();for(let i=0;i<3;i++){const s=islands[i],p=pointAt(s,0,s.r*s.sy+28,5),b=islandLabels[i],collision=p&&p.x-80<reserved.right+15&&p.y-35<reserved.bottom+20&&p.y+35>reserved.top-10,show=p&&p.x>70&&p.x<W-70&&p.y>110&&p.y<H-100&&!collision&&!(i===selected&&nearState);b.hidden=!show;if(show){b.style.left=p.x+'px';b.style.top=(p.y+23)+'px';b.style.opacity=clamp(p.s*1.3,.4,1);}}for(let i=0;i<3;i++){const b=books[i],s=islands[selected],left=i===0,p=pointAt(s,b.x+(left?-1:1)*b.w*.6,b.y,terrainHeight(s,b.x,b.y)+b.z),el=articleLabels[i];el.hidden=!nearState||!p||p.x<(left?230:130)||p.x>W-(left?50:215)||p.y<115||p.y>H-115;if(!el.hidden){el.style.transform=left?'translate(calc(-100% - 14px), -50%)':'translate(14px,-50%)';el.style.left=p.x+'px';el.style.top=(p.y+4)+'px';el.style.opacity=smooth(690,540,camera.d);}}$('coordinates').textContent=Math.round(camera.x).toString().padStart(3,'0')+' / '+Math.round(camera.y).toString().padStart(3,'0');$('zoom').textContent=(1150/camera.d).toFixed(1)+'×';$('minus').disabled=target.d>=2500;$('plus').disabled=target.d<=270;land.dataset.camera=JSON.stringify(camera);land.dataset.landPaints=stats.landPaints;land.dataset.landMs=stats.landMs.toFixed(2);}
+// setZoom 改变相机距离目标；锚点落在海平面，所有中途输入可打断自动靠近。
+function setZoom(factor,x=W*.57,y=H*.55){flight=false;target.x=camera.x;target.y=camera.y;target.d=clamp(target.d*factor,270,2500);zoomAnchor={x,y,world:unprojectSea(x,y)};wake();}
+// approachIsland 连续对准被选岛，先保留当前镜头值；不切换到另一个场景。
+function approachIsland(index){selected=index;if(gardenReady)gardenText();const s=islands[index];target.x=s.x;target.y=s.y+10;target.d=W<580?540:570;flight=true;zoomAnchor=null;updateMode(true);wake();}
+// returnSea 将视点从当前位置缓慢拉远；用户可在中途重新拖动或缩放。
+function returnSea(){target.x=islands[selected].x;target.y=islands[selected].y-60;target.d=W<580?850:1150;flight=true;zoomAnchor=null;wake();}
+// resetView 回到原点岛的初始构图，不重建任何地形数据。
+function resetView(){selected=0;returnSea();updateMode(true);}
+// stopCamera 在直接操控开始时接管当前画面，不跳到尚未完成的目标。
+function stopCamera(){target.x=camera.x;target.y=camera.y;target.d=camera.d;flight=false;zoomAnchor=null;}
+// pointInQuad 按纸页四边形命中，避免大圆形命中覆盖临近内容。
+function pointInQuad(x,y,pts){let inside=false;for(let i=0,j=pts.length-1;i<pts.length;j=i++){const a=pts[i],b=pts[j];if((a.y>y)!==(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)inside=!inside;}return inside;}
+// pickBook 从最后绘制的纸页开始命中，只在近景开启阅读。
+function pickBook(x,y){return -1;if(!nearState)return-1;for(let i=hits.length-1;i>=0;i--)if(pointInQuad(x,y,hits[i].points))return hits[i].index;return-1;}
+// pickIsland 使用岸线包围范围选择岛；文章命中优先于岛屿。
+function pickIsland(x,y){let found=-1,best=Infinity;for(let i=0;i<3;i++){const s=islands[i];if(i!==selected && Math.hypot(s.x-camera.x,s.y-camera.y)>camera.d*1.8)continue;const p=project(s.x,s.y,25);if(!p)continue;const d=Math.hypot((x-p.x)/(s.r*p.s),(y-p.y)/(s.r*s.sy*p.s));if(d<1.15&&d<best){best=d;found=i;}}return found;}
+// fillArticle 在原生模态阅读层中写入本地文本；始终使用 textContent 防止注入。
+function fillArticle(){const c=copy[lang];$('article-meta').textContent=c.sample+' / '+c.tags[currentArticle]+' / 2 '+c.minutes;$('article-title').textContent=c.title[currentArticle];$('article-body').replaceChildren();for(const text of c.body[currentArticle]){const p=document.createElement('p');p.textContent=text;$('article-body').append(p);}$('reader-end').textContent=c.end;$('next-article').textContent=c.next+'：'+c.title[(currentArticle+1)%3]+' ↗';$('reader').scrollTop=0;}
+// openArticle 打开浏览器原生 dialog，交由浏览器管理焦点边界及 Esc 关闭。
+function openArticle(index){currentArticle=index;fillArticle();if(!$('reader').open)$('reader').showModal();wake();}
+// wake 只保持一个动画请求；隐藏页面时不启动后台帧。
+function wake(){if(!raf&&!document.hidden)raf=requestAnimationFrame(frame);}
+// frame 管理镜头、海浪和 DOM 定位；陆地缓存独立，减少动态时收敛后完全停止。
+function frame(now){raf=0;if(document.hidden)return;const dt=Math.min(48,now-(last||now));last=now;const k=reduced.matches?1:1-Math.exp(-dt/(flight?240:100));const moving=Math.abs(target.d-camera.d)>.025||Math.abs(target.x-camera.x)>.025||Math.abs(target.y-camera.y)>.025;
+ if(moving){camera.d+= (target.d-camera.d)*k;if(flight){camera.x+=(target.x-camera.x)*k;camera.y+=(target.y-camera.y)*k;}if(zoomAnchor){const after=unprojectSea(zoomAnchor.x,zoomAnchor.y);camera.x+=zoomAnchor.world.x-after.x;camera.y+=zoomAnchor.world.y-after.y;target.x=camera.x;target.y=camera.y;}dirty=true;}else{camera.x=target.x;camera.y=target.y;camera.d=target.d;flight=false;zoomAnchor=null;}
+ if(!reduced.matches&&!$('reader').open&&!$('about').open)time+=dt*.001;const drawWater=dirty||!lastSea||(!reduced.matches&&!$('reader').open&&!$('about').open&&now-lastSea>31);
+ if(drawWater){drawSea(time);drawAir(time);drawGarden(now);lastSea=now;}if(dirty){drawLand();updateMode();positionLabels();dirty=false;}positionGarden();if(moving||(!reduced.matches&&!$('reader').open&&!$('about').open))wake();}
+// 两指距离和中点用于连续缩放；仅在存在两个触点时调用。
+function pinchPair(){const p=[...gesture.values()];return{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2,d:Math.max(1,Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y))};}
+// pointerdown 接管镜头和指针捕获，避免拖出画布后丢失释放事件。
+land.addEventListener('pointerdown',e=>{stopCamera();gesture.set(e.pointerId,{x:e.clientX,y:e.clientY});down={x:e.clientX,y:e.clientY};dragMoved=gesture.size>1;land.setPointerCapture(e.pointerId);land.classList.add('dragging');});
+// pointermove 让单指与地表同步；双指缩放使用当前画面位置，防止松手跳动。
+land.addEventListener('pointermove',e=>{if(!gesture.has(e.pointerId)){const next=pickBook(e.clientX,e.clientY);gardenHover=pickPlant(e.clientX,e.clientY);lastSea=0;if(next!==hover){hover=next;lastSea=0;wake();}land.style.cursor=gardenHover||next>=0||pickIsland(e.clientX,e.clientY)>=0?'pointer':'grab';return;}const old=gesture.get(e.pointerId),before=gesture.size===2?pinchPair():null;gesture.set(e.pointerId,{x:e.clientX,y:e.clientY});if(gesture.size===2){const after=pinchPair();target.d=clamp(camera.d*before.d/after.d,270,2500);zoomAnchor={x:after.x,y:after.y,world:unprojectSea(before.x,before.y)};dragMoved=true;wake();return;}const a=unprojectSea(old.x,old.y),b=unprojectSea(e.clientX,e.clientY);camera.x+=a.x-b.x;camera.y+=a.y-b.y;target.x=camera.x;target.y=camera.y;if(down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)dragMoved=true;dirty=true;wake();});
+// finishPointer 只把未移动的释放视为点击；取消不触发打开或旅行。
+function finishPointer(e,cancelled){if(!gesture.has(e.pointerId))return;gesture.delete(e.pointerId);if(!gesture.size){land.classList.remove('dragging');if(!dragMoved&&!cancelled){if(pickPlant(e.clientX,e.clientY)){waterPlant();down=null;return;}const b=pickBook(e.clientX,e.clientY);if(b>=0)openArticle(b);else{const i=pickIsland(e.clientX,e.clientY);if(i>=0)approachIsland(i);}}down=null;}else dragMoved=true;}
+// 释放与取消都清理捕获手势；取消明确禁止点击副作用。
+land.addEventListener('pointerup',e=>finishPointer(e,false));
+land.addEventListener('pointercancel',e=>finishPointer(e,true));
+// wheel 把不同设备的滚动单位归一化，不吞掉阅读层的正常滚动。
+land.addEventListener('wheel',e=>{e.preventDefault();const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?H:1);setZoom(Math.exp(clamp(delta,-180,180)*.0014),e.clientX,e.clientY);},{passive:false});
+// UI 控件直接复用同一镜头和阅读动作，避免测试入口与实际入口分叉。
+$('plus').addEventListener('click',()=>setZoom(.72));
+$('minus').addEventListener('click',()=>setZoom(1.38));
+$('home').addEventListener('click',resetView);
+$('brand').addEventListener('click',resetView);
+$('approach').addEventListener('click',()=>nearState?returnSea():approachIsland(selected));
+$('theme').addEventListener('click',()=>setTheme(theme==='auto'?'dark':theme==='dark'?'light':'auto'));
+$('language').addEventListener('click',()=>{lang=lang==='zh'?'en':'zh';remember('lang',lang);$('toast').textContent='';$('toast').classList.remove('visible');updateText();});
+$('help').addEventListener('click',()=>{$('about').showModal();});
+$('close-about').addEventListener('click',()=>{$('about').close();wake();});
+$('close-reader').addEventListener('click',()=>{$('reader').close();wake();});
+$('next-article').addEventListener('click',()=>{currentArticle=(currentArticle+1)%3;fillArticle();});
+// 原生 Esc 关闭模态框后恢复海浪；保留浏览器的焦点恢复行为。
+$('reader').addEventListener('close',wake);
+$('about').addEventListener('close',wake);
+// 键盘操控仅在无模态框时接管；平移方向与拖动地表一致。
+addEventListener('keydown',e=>{if($('reader').open||$('about').open)return;if(e.key==='Escape'){returnSea();return;}if(e.key==='+'||e.key==='='){setZoom(.8);e.preventDefault();}else if(e.key==='-'){setZoom(1.25);e.preventDefault();}else if(e.key.startsWith('Arrow')){e.preventDefault();stopCamera();const step=camera.d*.07;if(e.key==='ArrowLeft')camera.x-=step;if(e.key==='ArrowRight')camera.x+=step;if(e.key==='ArrowUp')camera.y-=step;if(e.key==='ArrowDown')camera.y+=step;target.x=camera.x;target.y=camera.y;dirty=true;wake();}});
+// 视口与系统偏好改变时重画；隐藏页面立即释放动画请求。
+addEventListener('resize',resize);
+systemTheme.addEventListener('change',()=>{if(theme==='auto')setTheme('auto');});
+reduced.addEventListener('change',()=>{dirty=true;wake();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelAnimationFrame(raf);raf=0;}else{last=0;dirty=true;wake();}});
+// 显卡上下文恢复后重建本地海面资源；丢失期间陆地与阅读仍可使用。
+sea.addEventListener('webglcontextlost',e=>{e.preventDefault();});
+sea.addEventListener('webglcontextrestored',()=>{waterProgram=null;initWater();dirty=true;wake();});
+// 仅暴露只读诊断快照，方便核对真实相机与渲染耗时，不提供另一条业务操作路径。
+Object.defineProperty(window,'pulseTides',{get(){return{camera:{...camera},target:{...target},stats:{...stats},near:nearState,selected,theme,lang,reduced:reduced.matches};}});
+/* 互动分支：植物、照料状态与真实指针。单文件可独立玩；配套本地服务支持多窗口。
+   三座岛及植物是示例，来客均来自实际打开的连接，不生成虚拟访客。 */
+let gardenReady = false, gardenHover = false, gardenYou = '', gardenOnline = false;
+let gardenSource = null, gardenBusy = false, gardenNextWater = 0, gardenLastMove = 0;
+let gardenState = {version:0, plants:[{care:0,last:null},{care:0,last:null},{care:0,last:null}]};
+const gardenPeers = new Map(), gardenEffects = [], gardenGrowth = [0,0,0];
+const gardenCopy = {
+  zh:{title:'留一片绿意',desc:'这是你在海上的一小块地方。\n有人来过，便多一点生机。',near:'给相遇一点回应。\n为岛上的植物浇一捧水。',names:['你的原点','雨后的花园','远山的庭院'],
+    water:'浇一点水',approach:'靠近这株植物',wait:'水正在落下…',ready:'一株植物，等一捧水。',leaf:'叶片舒展开了。',bud:'它长出了一个花苞。',bloom:'这朵花，记得来过的人。',
+    detail:'点植物也可以浇水 · 不会枯萎，不用打卡',visit:'打开访客窗口',one:'此刻，只有你在这里',many:' 个窗口在同一片海上',offline:'单人预览',online:'本地联动',connecting:'正在连接',lost:'连接中断，正在重连',
+    fixture:'互动 Demo · 三座示例岛',you:'你',guest:'来客',arrival:'有人来到这片海上',remote:'也浇了一捧水',thanks:'水落下了，叶片轻轻回应。',together:'两个人的水，落在同一株植物上。',saved:'生长变化已保存在本机',unsaved:'无法保存；本次变化只在当前页面',
+    trace:'最近照料：',fresh:'还没有照料记录',watered:'浇过水',error:'这次浇水未确认，请稍后重试',connectingHint:'正在连接本地互动服务…',soloHint:'直接打开文件是单人体验；双人试玩请运行配套服务。',
+    guide:'来这里，一起做一件小事',about:'<p>拖动海面、滚轮或双指靠近。点植物或“浇一点水”，看水滴落下、叶片舒展。三次照料后开花；之后仍会回应，不会枯萎，也不需要每日打卡。</p><p>“打开访客窗口”会打开一个真实的独立连接。把两个窗口并排，移动鼠标、分别浇水，就能看到彼此的指针和相同的植物变化。此 Demo 仅在本机联动，不是互联网邀请，也没有账号与岛屿所有权。</p><p>每座示例岛各有一株植物，生长记录保存在本机。两个人相隔六秒内浇水，会有额外的共同光点，但独自也能开花。植物碰触与按钮共用同一个动作。</p><p>设计借鉴：<a href="https://animalcrossing.nintendo.com/new-horizons/share/" target="_blank" rel="noreferrer">动物森友会的拜访</a>、<a href="https://thatgamecompany.helpshift.com/hc/en/17-sky-children-of-the-light/faq/521-what-are-message-shrines-message-candles-message-boats-shared-spaces-and-shared-memories/" target="_blank" rel="noreferrer">光·遇的共同空间与痕迹</a>。本 Demo 的规则和图形为原创实验，不复制其素材或经济系统。</p>'},
+  en:{title:'A little green',desc:'A small place of your own at sea.\nA little more alive after each visit.',near:'Give an encounter a small reply.\nA handful of water is enough.',names:['Your origin','The rain garden','A distant courtyard'],
+    water:'Give some water',approach:'Approach the plant',wait:'Let the water settle…',ready:'A plant. A little water.',leaf:'The leaves unfurl.',bud:'A small bud has appeared.',bloom:'A flower that remembers a visit.',
+    detail:'Select the plant to water · No wilting, no daily chores',visit:'Open a visitor window',one:'Just you, for now',many:' windows on the same sea',offline:'Solo preview',online:'Local multiplayer',connecting:'Connecting',lost:'Disconnected · reconnecting',
+    fixture:'Interaction demo · Three sample islands',you:'You',guest:'Visitor',arrival:'Someone has arrived',remote:'gave some water too',thanks:'A little water. A gentle reply.',together:'Two visitors. One little plant.',saved:'Growth saved on this computer',unsaved:'Storage unavailable; changes last for this page only',
+    trace:'Last cared for by ',fresh:'No visits recorded yet',watered:'watered this plant',error:'Watering was not confirmed. Please try again.',connectingHint:'Connecting to the local demo…',soloHint:'A file opens in solo mode. Run the included server to try two windows.',
+    guide:'A small thing to do together',about:'<p>Drag to explore. Scroll or pinch to approach. Select the plant or Give some water. Leaves unfurl; after three waterings a flower opens. It never wilts and needs no daily chores.</p><p>Open a visitor window creates a real second connection. Place the windows side by side to see each cursor and water the same plant. This is local multiplayer, not an internet invitation. There are no accounts or island ownership.</p><p>Each sample island has its own plant. Growth is saved locally. Water within six seconds of another visitor for a shared light effect; a solo visitor can also reach flowering. Reduced motion keeps feedback still.</p><p>Inspired by <a href="https://animalcrossing.nintendo.com/new-horizons/share/" target="_blank" rel="noreferrer">Animal Crossing visits</a> and <a href="https://thatgamecompany.helpshift.com/hc/en/17-sky-children-of-the-light/faq/521-what-are-message-shrines-message-candles-message-boats-shared-spaces-and-shared-memories/" target="_blank" rel="noreferrer">Sky shared spaces and memories</a>. Rules and geometry in this demo are original.</p>'}
+};
+
+// gardenNotice 只播报有意义的动作和连接变化，定时清理提示，不显示伪造的来访。
+function gardenNotice(message) {
+  $('toast').textContent=message; $('toast').classList.add('visible');
+  clearTimeout(toastTimer);
+  // 提示不拦截鼠标；四秒后退场，下一条提示会重置计时。
+  toastTimer=setTimeout(()=>{$('toast').classList.remove('visible');$('toast').textContent='';},4000);
+}
+
+// gardenActionText 在镜头跨越远近阈值时更新按钮语义，避免“浇水”按钮第一次点击只靠近却没有说明。
+function gardenActionText() {
+  const c=gardenCopy[lang];
+  $('water-label').textContent=gardenBusy||Date.now()<gardenNextWater?c.wait:nearState?c.water:c.approach;
+  $('plant-caption').textContent=nearState?c.water:c.approach;
+  $('plant-hit').ariaLabel=nearState?c.water:c.approach;
+}
+
+// gardenText 共用当前语言和主题系统；只改变界面，不翻译用户内容。
+function gardenText() {
+  const c=gardenCopy[lang];
+  Object.assign(copy[lang], {headline:c.title,description:c.desc,nearDesc:c.near,names:c.names,approach:c.approach,nearby:lang==='zh'?'去海的另一边':'Across the water',fixture:c.fixture,about:c.about,aboutTitle:c.guide,articles:''});
+  $('edition').textContent=lang==='zh'?'来过，便有回响':'A SMALL SHARED MOMENT';
+  $('fixture').textContent=c.fixture; $('about-title').textContent=c.guide; $('about-copy').innerHTML=c.about;
+  $('visit').textContent=c.visit; $('plant-caption').textContent=nearState?c.water:c.approach;
+  $('plant-hit').ariaLabel=nearState?c.water:c.approach;
+  $('care-panel').ariaLabel=lang==='zh'?'照料植物':'Care for the plant';
+  $('brand').ariaLabel=lang==='zh'?'回到初始视角':'Return to the starting view';
+  document.querySelector('.tools').ariaLabel=lang==='zh'?'显示设置':'Display settings';
+  $('nearby').ariaLabel=lang==='zh'?'附近岛屿':'Nearby islands';
+  $('water-label').textContent=gardenBusy||Date.now()<gardenNextWater?c.wait:c.water;
+  $('care-detail').textContent=c.detail;
+  const plant=gardenState.plants[selected], stage=Math.min(3,plant.care);
+  $('care-note').textContent=[c.ready,c.leaf,c.bud,c.bloom][stage];
+  $('trace').textContent=plant.last?c.trace+(plant.last.id===gardenYou?c.you:c.guest+' '+plant.last.name)+' · '+c.watered:c.fresh;
+  $('offline').textContent=location.protocol==='file:'?c.offline:gardenOnline?c.online:c.connecting;
+  $('presence').textContent=location.protocol==='file:'?c.offline:!gardenOnline?c.lost:gardenPeers.size<=1?c.one:gardenPeers.size+c.many;
+  for(let i=0;i<3;i++)nearbyButtons[i].firstElementChild.textContent=c.names[i];
+  updateMode(true);
+}
+
+// plantWorld 锚定岛屿本地坐标与地形高度；相机移动不会改变植物的归属与位置。
+function plantWorld(index,x=0,y=0,z=0) {
+  const s=islands[index]; return localWorld(s,x,y-12,terrainHeight(s,0,-12)+z);
+}
+
+// plantProject 让茎、叶片、花瓣与命中入口共享同一投影；越过近裁剪返回 null。
+function plantProject(index,x,y,z) {
+  const p=plantWorld(index,x,y,z); return project(p.x,p.y,p.z);
+}
+
+// pickPlant 命中视觉植物区域；拖动是否构成点击仍交给现有手势阈值判定。
+function pickPlant(x,y) {
+  const p=plantProject(selected,0,0,48);
+  return !!p && Math.hypot(x-p.x,(y-p.y)*.75)<Math.max(30,48*p.s);
+}
+
+// positionGarden 将透明语义按钮贴合植物；画面外隐藏，固定照料按钮始终可键盘操作。
+function positionGarden() {
+  if(!gardenReady)return;
+  const p=plantProject(selected,0,0,48), el=$('plant-target');
+  el.hidden=!p||p.x<30||p.x>W-30||p.y<90||p.y>H-210;
+  if(!el.hidden){el.style.left=p.x+'px';el.style.top=p.y+'px';el.style.width=clamp(95*p.s,64,210)+'px';el.style.height=clamp(115*p.s,75,230)+'px';}
+  const disabled=gardenBusy||Date.now()<gardenNextWater||(location.protocol!=='file:'&&!gardenOnline);
+  if($('water').disabled!==disabled){$('water').disabled=disabled;gardenText();}
+  $('plant-hit').disabled=disabled;
+  document.body.dataset.garden=JSON.stringify({stage:gardenState.plants[selected].care,selected,online:gardenOnline,peers:gardenPeers.size,version:gardenState.version});
+}
+
+// leafShape 用两条参数曲线构成有折面和中脉的叶片；顶点在三维空间计算，没有图片资源。
+function leafShape(index,base,angle,length,width,lift,opacity,petal=false) {
+  const edgeA=[],edgeB=[],vein=[];
+  for(let k=0;k<=18;k++){
+    const t=k/18,w=Math.sin(t*Math.PI)*width,c=Math.cos(angle),s=Math.sin(angle);
+    const x=base.x+c*t*length,y=base.y+s*t*length,z=base.z+Math.sin(t*Math.PI*.7)*lift;
+    edgeA.push(plantWorld(index,x-s*w,y+c*w,z));edgeB.push(plantWorld(index,x+s*w,y-c*w,z-2*Math.sin(t*Math.PI)));
+    vein.push(plantWorld(index,x,y,z+1.5));
+  }
+  polygon(ac,[...edgeA,...edgeB.reverse()],rgba(petal?P.shore:P.land,opacity),rgba(P.foam,.55*opacity),.7);
+  drawLine(ac,vein,rgba(P.shore,.75*opacity),.85);
+  // 少量固定颗粒沿叶脉展开，让近景材质与岛屿一致；不使用每帧随机噪声。
+  for(let j=0;j<22;j++){
+    const t=(j+.5)/22,w=Math.sin(t*Math.PI)*width*(hash(j,3,9)-.5)*1.6;
+    const p=plantProject(index,base.x+Math.cos(angle)*t*length-Math.sin(angle)*w,base.y+Math.sin(angle)*t*length+Math.cos(angle)*w,base.z+Math.sin(t*Math.PI*.7)*lift+1);
+    if(p){ac.fillStyle=rgba(P.foam,.52*opacity);ac.fillRect(p.x,p.y,clamp(p.s*.6,.5,1.4),clamp(p.s*.6,.5,1.4));}
+  }
+}
+
+// drawPlant 绘制细茎、分层叶片和花朵；生长只读状态，缓动不产生业务写入。
+function drawPlant(index,now) {
+  const p=plantProject(index,0,0,0); if(!p||p.x<-200||p.x>W+200||p.y<-200||p.y>H+220)return;
+  const growth=gardenGrowth[index], sway=reduced.matches?0:Math.sin(time*.8+index)*2;
+  const stem=[],height=56+growth*13;
+  for(let k=0;k<=24;k++){const t=k/24;stem.push(plantWorld(index,Math.sin(t*2.2)*6+sway*t*t,0,height*t));}
+  // 土壤投影和细粒点圈使植物落在岛面上；不使用逐粒子阴影滤镜。
+  const ring=[];for(let j=0;j<=64;j++){const a=j/64*TAU;ring.push(plantWorld(index,Math.cos(a)*28,Math.sin(a)*20,.5));}
+  polygon(ac,ring,rgba(P.contour,.14),rgba(P.shore,.32),.6);
+  drawLine(ac,stem,rgba(P.foam,.9),Math.max(1.1,p.s*1.4));
+  leafShape(index,{x:5,y:0,z:25},2.9,34+growth*5,9+growth*1.4,13,.8);
+  leafShape(index,{x:6,y:0,z:40},-.3,30+growth*6,9+growth*1.6,20,.86);
+  if(growth>.2)leafShape(index,{x:6,y:0,z:55},-2.2,24+growth*4,7+growth,18,Math.min(.8,growth));
+  if(growth>1.1)leafShape(index,{x:6,y:0,z:68},.9,23,7,13,Math.min(.8,growth-1));
+  const top=plantProject(index,6+sway,0,height);
+  if(top&&growth>1.25){
+    const opening=smooth(1.8,3,growth);
+    for(let j=0;j<7;j++){
+      const angle=j/7*TAU+.3;
+      leafShape(index,{x:6+sway,y:0,z:height},angle,6+opening*21,3+opening*6,12-opening*4,.92,true);
+    }
+    ac.fillStyle=P.gold;ac.beginPath();ac.arc(top.x,top.y-4*p.s,Math.max(1.7,3.2*p.s),0,TAU);ac.fill();
+  }
+  if(index===selected&&gardenHover){drawLine(ac,ring,rgba(P.shore,.7),1.1);}
+}
+
+// drawGarden 与已有空气层共享 30Hz 绘制；叶片缓动、限量水滴与远端插值都不重绘地形。
+function drawGarden(now) {
+  if(!gardenReady)return;
+  for(let i=0;i<3;i++){
+    const desired=Math.min(3,gardenState.plants[i].care);
+    gardenGrowth[i]+=reduced.matches?desired-gardenGrowth[i]:(desired-gardenGrowth[i])*.055;
+    if(i===selected)drawPlant(i,now);
+  }
+  for(let i=gardenEffects.length-1;i>=0;i--){
+    const e=gardenEffects[i],life=(Date.now()-e.time)/2400;
+    if(life>=1){gardenEffects.splice(i,1);continue;}
+    if(e.island!==selected)continue;
+    if(reduced.matches){const p=plantProject(e.island,0,0,10);if(p){ac.strokeStyle=P.gold;ac.beginPath();ac.ellipse(p.x,p.y,35*p.s,18*p.s,0,0,TAU);ac.stroke();}continue;}
+    // 水滴按固定种子落下，随后变成向外扩散的土壤光点；每次动作最多 56 个点。
+    for(let j=0;j<56;j++){
+      const n=hash(j,5,17),a=hash(j,2,8)*TAU,q=clamp(life*1.65-n*.32,0,1);
+      const r=q<.65?12+n*19:18+(q-.65)*130;
+      const z=q<.65?155*(1-q/.65)+8:5+Math.sin((q-.65)*Math.PI)*18;
+      const p=plantProject(e.island,Math.cos(a)*r,Math.sin(a)*r,z);if(!p||q===0)continue;
+      ac.fillStyle=rgba(e.together?P.shore:P.foam,Math.sin(q*Math.PI)*.85);
+      ac.beginPath();ac.ellipse(p.x,p.y,clamp(p.s*(.6+n),.6,3),clamp(p.s*(q<.65?3:1),1,5),0,0,TAU);ac.fill();
+    }
+  }
+  for(const [id,peer]of gardenPeers){
+    if(id===gardenYou||!peer.cursor)continue;
+    const c=peer.cursor,shown=peer.shown||(peer.shown={...c});
+    shown.x+=(c.x-shown.x)*.3;shown.y+=(c.y-shown.y)*.3;shown.z+=(c.z-shown.z)*.3;
+    const p=project(shown.x,shown.y,shown.z);if(!p||p.x<0||p.x>W||p.y<0||p.y>H)continue;
+    ac.save();ac.translate(p.x,p.y);ac.strokeStyle=rgba(P.foam,.95);ac.fillStyle=P.bg;ac.lineWidth=1.3;
+    ac.beginPath();ac.moveTo(0,0);ac.lineTo(5,16);ac.lineTo(9,10);ac.lineTo(16,7);ac.closePath();ac.fill();ac.stroke();
+    ac.fillStyle=rgba(P.foam,.95);ac.font='11px sans-serif';ac.fillText(gardenCopy[lang].guest+' '+peer.name,19,18);ac.restore();
+  }
+}
+
+// surfaceWorld 反求岛面或海面上的指向位置，使用同一地形高度；远端相机独立时仍指向同一物件。
+function surfaceWorld(sx,sy) {
+  let p=unprojectSea(sx,sy);
+  // heightAt 将世界坐标变回各岛局部坐标，仅在岛内返回地形高度。
+  function heightAt(x,y){for(const s of islands){const dx=x-s.x,dy=y-s.y,c=Math.cos(s.rot),sn=Math.sin(s.rot),lx=dx*c+dy*sn,ly=-dx*sn+dy*c;if(Math.hypot(lx,ly/s.sy)<s.r*.98)return terrainHeight(s,lx,ly)+2;}return 0;}
+  for(let i=0;i<9;i++){
+    const z=heightAt(p.x,p.y),q=project(p.x,p.y,z),qx=project(p.x+1,p.y,heightAt(p.x+1,p.y)),qy=project(p.x,p.y+1,heightAt(p.x,p.y+1));
+    if(!q||!qx||!qy)break;
+    const a=qx.x-q.x,b=qy.x-q.x,c=qx.y-q.y,d=qy.y-q.y,det=a*d-b*c;if(Math.abs(det)<.00001)break;
+    const ex=sx-q.x,ey=sy-q.y;p.x+=clamp((ex*d-ey*b)/det,-400,400);p.y+=clamp((ey*a-ex*c)/det,-400,400);
+  }
+  return {...p,z:heightAt(p.x,p.y)};
+}
+
+// acceptGarden 只接受不倒退的权威快照；重连 welcome 可显式重设版本，动画与确认分离。
+function acceptGarden(next,reset=false) {
+  if(!next||!Array.isArray(next.plants)||next.plants.length!==3)return;
+  if(!reset&&next.version<gardenState.version)return;
+  gardenState=next;gardenText();dirty=true;lastSea=0;wake();
+}
+
+// postGarden 为本地会话发送有界动作；超时和 HTTP 错误不会假装照料成功。
+async function postGarden(payload) {
+  const response=await fetch('/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,id:gardenYou}),signal:AbortSignal.timeout(5000)});
+  if(!response.ok)throw new Error('Action '+response.status);
+  return response.json();
+}
+
+// waterPlant 统一按钮和画布命中入口；服务端确认后才生长，离线时明确只保存在本机。
+async function waterPlant() {
+  if(gardenBusy||Date.now()<gardenNextWater)return;
+  if(!nearState){approachIsland(selected);return;}
+  if(location.protocol!=='file:'&&!gardenOnline){gardenNotice(gardenCopy[lang].connectingHint);return;}
+  const index=selected;gardenBusy=true;gardenText();positionGarden();
+  try{
+    if(location.protocol==='file:'){
+      const next=JSON.parse(JSON.stringify(gardenState));next.version++;next.plants[index].care=Math.min(3,next.plants[index].care+1);
+      next.plants[index].last={id:'solo',name:'',at:Date.now()};gardenYou='solo';acceptGarden(next);
+      gardenEffects.push({island:index,time:Date.now(),together:false});
+      try{localStorage.setItem('pulse-garden-state-v1',JSON.stringify(next));gardenNotice(gardenCopy[lang].thanks);}catch{gardenNotice(gardenCopy[lang].unsaved);}
+    }else{
+      const result=await postGarden({type:'water',island:index,eventId:crypto.randomUUID()});acceptGarden(result.state);
+    }
+    gardenNextWater=Date.now()+2500;
+  }catch{gardenNotice(gardenCopy[lang].error);}
+  finally{
+    gardenBusy=false;gardenText();dirty=true;wake();
+    // 冷却结束必须唤醒减少动态模式下已停止的画面，恢复可操作按钮。
+    setTimeout(()=>{gardenText();positionGarden();lastSea=0;wake();},2600);
+  }
+}
+
+// connectGarden 接收实际本地连接；网络断开清理来客，重连 welcome 重建快照而不是重复入场动画。
+function connectGarden() {
+  gardenSource=new EventSource('/events');
+  // 事件解码失败只报告并等待下一帧快照，不把未知载荷写进页面 HTML。
+  gardenSource.onmessage=(event)=>{
+    let data;try{data=JSON.parse(event.data);}catch{return;}
+    if(data.type==='welcome'){
+      gardenYou=data.you;gardenOnline=true;gardenPeers.clear();for(const peer of data.peers)gardenPeers.set(peer.id,peer);acceptGarden(data.state,true);
+      for(let i=0;i<3;i++)gardenGrowth[i]=gardenState.plants[i].care;
+    }else if(data.type==='join'){
+      gardenPeers.set(data.peer.id,data.peer);gardenNotice(gardenCopy[lang].arrival);gardenText();
+    }else if(data.type==='leave'){
+      gardenPeers.delete(data.id);gardenText();
+    }else if(data.type==='cursor'){
+      const peer=gardenPeers.get(data.id);if(peer)peer.cursor=data.cursor;
+    }else if(data.type==='water'){
+      acceptGarden(data.state);gardenEffects.push({island:data.island,time:Date.now(),together:data.together});
+      if(gardenEffects.length>12)gardenEffects.shift();
+      gardenNotice(data.together?gardenCopy[lang].together:data.id===gardenYou?gardenCopy[lang].thanks:gardenCopy[lang].guest+' '+data.name+' '+gardenCopy[lang].remote);
+    }
+    lastSea=0;wake();
+  };
+  // 断线后立即禁用需要确认的动作，不显示过期的访客数量。
+  gardenSource.onerror=()=>{gardenOnline=false;gardenPeers.clear();gardenText();positionGarden();lastSea=0;wake();};
+}
+
+// startGarden 安装一次互动层；本地服务失败不降级伪造多人，直接文件模式才使用本地存储。
+function startGarden() {
+  gardenReady=true;
+  if(location.protocol==='file:'){
+    gardenYou='solo';try{const saved=JSON.parse(localStorage.getItem('pulse-garden-state-v1'));if(saved&&saved.plants?.every(p=>Number.isInteger(p.care)&&p.care>=0&&p.care<=3))acceptGarden(saved,true);}catch{}
+    for(let i=0;i<3;i++)gardenGrowth[i]=gardenState.plants[i].care;
+    $('visit').href='#';
+    // 文件来源没有共享服务，明确提示启动方法，不打开假的访客。
+    $('visit').addEventListener('click',e=>{e.preventDefault();gardenNotice(gardenCopy[lang].soloHint);});
+  }else connectGarden();
+  // 可访问的按钮和画布入口使用同一水动作；悬停仅改变可供操作的提示。
+  $('water').addEventListener('click',waterPlant);$('plant-hit').addEventListener('click',waterPlant);
+  $('plant-hit').addEventListener('pointerenter',()=>{gardenHover=true;lastSea=0;wake();});
+  $('plant-hit').addEventListener('pointerleave',()=>{gardenHover=false;lastSea=0;wake();});
+  // 指针最多每 65ms 上报一次，窗口失焦不生成假动作；不在 UI 面板上广播空间位置。
+  document.addEventListener('pointermove',e=>{
+    if(!gardenOnline||performance.now()-gardenLastMove<65||!(e.target===land||e.target===$('plant-hit')))return;
+    gardenLastMove=performance.now();
+    const cursor=e.target===$('plant-hit')?plantWorld(selected,0,0,65):surfaceWorld(e.clientX,e.clientY);
+    // 指针包允许丢弃；下次移动即覆盖，不用重试旧坐标。
+    postGarden({type:'cursor',cursor}).catch(()=>{});
+  });
+  // 本窗口退出释放 SSE；来客离开由服务器的连接关闭广播。
+  addEventListener('pagehide',()=>gardenSource?.close());
+  gardenText();positionGarden();dirty=true;wake();
+}
+
+// 启动时读取本原型自己的偏好键；窄屏从更近的视点开始，避免岛屿缩成小点。
+lang=remember('lang')==='en'?'en':'zh';const savedTheme=remember('theme');theme=['auto','dark','light'].includes(savedTheme)?savedTheme:'auto';if(innerWidth<580)camera.d=target.d=780;resize();setTheme(theme);updateText();startGarden();wake();
+</script>
+</body>
+</html>

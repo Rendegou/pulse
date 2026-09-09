@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-09",
+  "method": "Actual CUA browser actions and read-only DOM snapshots",
+  "observations": [
+    "Desktop default viewport: isolated selected island, plant and primary action visible",
+    "Primary action approaches from distance, then waters in near view",
+    "Two real browser connections: both reported stage 2, version 2 after watering",
+    "390x844 viewport: remote pointer visible on actual screenshot",
+    "Third watering produced the flowering state text",
+    "English and light theme rendered with controls inside the mobile viewport",
+    "Final fresh demo reported stage zero and one actual connection",
+    "No captured error-level console entries in inspected tabs"
+  ],
+  "unverified": ["Physical touch pinch", "System reduced-motion device test", "Low-end GPU frame rate", "Production and internet multiplayer"],
+  "scope": "Prototype only; visual satisfaction and actual two-person enjoyment require user feedback"
+}

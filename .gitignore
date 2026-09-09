@@ -2,3 +2,8 @@ pulse.exe
 dist/
 .tools/
 *.log
+# 本地互动 Demo 的运行记录与生成的语法检查文件，不属于产品数据。
+work/garden-*-state.json
+work/garden-*-state.json.tmp
+work/garden-inline-check.js
+pulse-garden-state.json

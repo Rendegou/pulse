@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "checks": [
+    "real SSE welcome/join/leave",
+    "world cursor broadcast",
+    "two-client identical watering snapshot",
+    "duplicate id is idempotent",
+    "cooldown/invalid island/unknown session rejected",
+    "shared watering within six seconds",
+    "restart restores saved plants",
+    "concurrent actions on separate islands preserve both",
+    "disk failure has no successful state mutation"
+  ],
+  "scope": "Local protocol integration; not browser or production verification"
+}
