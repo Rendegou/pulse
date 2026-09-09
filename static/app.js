@@ -44,7 +44,9 @@ let waterSeq = 0;
 // watering 是本地照料动作状态：busy 表示已发出但未收到服务端确认；
 // nextAt 是本地冷却结束时刻（服务端还有自己的冷却，本地只是提前禁用按钮）；
 // timer 是“未确认”超时，coolTimer 是冷却结束时刷新按钮的定时器。
-const watering = { busy: false, nextAt: 0, timer: 0, coolTimer: 0 };
+// watering 是本地照料动作状态：busy 表示已发出但未收到服务端结果；
+// requestId 是当前等待的请求 id——只有匹配它的 water_result 才能解除等待。
+const watering = { busy: false, nextAt: 0, timer: 0, coolTimer: 0, requestId: null };
 
 // pending 记录自己最近一次指针的世界坐标、地表高度与所在岛；dirty 表示有未发送的新位置。
 const pending = { x: 0, y: 0, z: 0, island: "", dirty: false };
@@ -273,8 +275,9 @@ function waterPlant() {
   const plantID = ISLANDS[world.getSelected()]?.id;
   if (!plantID) return;
   watering.busy = true;
+  watering.requestId = `w${waterSeq++}`;
   updateCarePanel();
-  ws.send(JSON.stringify({ type: "water", v: 1, plant: plantID, eventId: `w${waterSeq++}` }));
+  ws.send(JSON.stringify({ type: "water", v: 1, plant: plantID, eventId: watering.requestId }));
   // 超时未收到确认就解除禁用并提示：不假装照料成功
   clearTimeout(watering.timer);
   watering.timer = setTimeout(() => {
@@ -384,6 +387,33 @@ function onMessage(e) {
       pulses.push({ wx: e.wx, wy: e.wy, bornAt: performance.now(), mine: e.id === state.you });
       if (pulses.length > 64) pulses.shift();
       recordEvent("pulse", { id: e.id, x: e.wx, y: e.wy });
+      break;
+    }
+    case "water_result": {
+      // 动作结果（G0）：只处理匹配当前请求的结果。
+      // 成功解除等待；失败给出明确提示；状态永远以 plant 广播的权威快照为准。
+      if (e.requestId !== watering.requestId) break;
+      clearTimeout(watering.timer);
+      if (e.ok) {
+        watering.busy = false;
+        watering.nextAt = performance.now() + 2500;
+        clearTimeout(watering.coolTimer);
+        watering.coolTimer = setTimeout(() => updateCarePanel(), 2600);
+        if (e.duplicate) showToast(t(getPrefs().lang, "duplicateWater"));
+      } else {
+        watering.busy = false;
+        if (e.code === "cooldown") {
+          const wait = e.retryAfterMs || 2500;
+          watering.nextAt = performance.now() + wait;
+          showToast(t(getPrefs().lang, "cooling"));
+          clearTimeout(watering.coolTimer);
+          watering.coolTimer = setTimeout(() => updateCarePanel(), wait + 100);
+        } else {
+          // save_failed / not_found / bad_request：内存未变，可立即重试
+          showToast(t(getPrefs().lang, "saveFailed"));
+        }
+      }
+      updateCarePanel();
       break;
     }
     case "plant": {

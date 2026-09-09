@@ -98,13 +98,38 @@ func expectNoMessage(t *testing.T, conn *websocket.Conn, wait time.Duration) {
 	}
 }
 
+// readResult 读到一条 water_result 并返回；其它类型跳过。超时即失败。
+func readResult(t *testing.T, conn *websocket.Conn, timeout time.Duration) waterResultMsg {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("等待 water_result 失败: %v", err)
+		}
+		var head msgHead
+		if json.Unmarshal(data, &head) != nil || head.Type != "water_result" {
+			continue
+		}
+		var rm waterResultMsg
+		if err := json.Unmarshal(data, &rm); err != nil {
+			t.Fatalf("water_result 无法解析: %v", err)
+		}
+		return rm
+	}
+}
+
 // newTestGarden 让状态文件落在 t.TempDir() 下，返回花园与文件路径。
 // 用环境变量而不是包级变量，保证测试之间互不污染，也不碰仓库里的真实状态文件。
 func newTestGarden(t *testing.T) (*Garden, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "garden.json")
 	t.Setenv("PULSE_GARDEN_STATE", path)
-	return NewGarden(), path
+	g, err := NewGarden()
+	if err != nil {
+		t.Fatalf("测试花园初始化失败: %v", err)
+	}
+	return g, path
 }
 
 // TestGardenWaterPersistsAcrossRestart 覆盖：浇水后 care 前进、version 递增、
@@ -131,9 +156,9 @@ func TestGardenWaterPersistsAcrossRestart(t *testing.T) {
 	}
 
 	// 重新从磁盘加载：模拟进程重启
-	reloaded, ok := loadGardenState(path)
-	if !ok {
-		t.Fatal("刚写入的状态应能读回")
+	reloaded, err := loadGardenState(path)
+	if err != nil {
+		t.Fatalf("刚写入的状态应能读回: %v", err)
 	}
 	if reloaded.Version != 1 || reloaded.Plants[0].Care != 1 {
 		t.Fatalf("重启后应保留 care=1 version=1，实际 %+v", reloaded)
@@ -245,7 +270,7 @@ func TestLoadGardenStateRejectsBadShape(t *testing.T) {
 		if err := writeFile(path, body); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := loadGardenState(path); ok {
+		if _, err := loadGardenState(path); err == nil {
 			t.Errorf("%s：应判定为无效状态", name)
 		}
 	}
@@ -281,24 +306,44 @@ func TestWaterMessageDedupAndCooldown(t *testing.T) {
 		t.Fatalf("广播应带植物与连接身份，实际 %+v", first)
 	}
 
-	// 同一事件 id 重发：被去重，不应再有广播
+	// 同一事件 id 重发：不再生长，但收到明确的幂等确认（G0 语义）
 	sendWater("origin", "w1")
-	expectNoMessage(t, conn, 400*time.Millisecond)
+	dup := readResult(t, conn, 2*time.Second)
+	if !dup.OK || !dup.Duplicate || dup.RequestID != "w1" {
+		t.Fatalf("重复请求应返回 ok+duplicate 且回带 requestId，实际 %+v", dup)
+	}
 
-	// 冷却期内的新事件：同样被忽略
+	// 冷却期内的新事件：返回 cooldown 与可重试时间
 	sendWater("origin", "w2")
-	expectNoMessage(t, conn, 400*time.Millisecond)
+	cd := readResult(t, conn, 2*time.Second)
+	if cd.OK || cd.Code != "cooldown" || cd.RetryAfterMs <= 0 {
+		t.Fatalf("冷却期应返回 cooldown 与 retryAfterMs，实际 %+v", cd)
+	}
 
-	// 非法事件：未知植物、空 id、错误版本，都不应产生广播
+	// 冷却期内任何动作都是 cooldown（限流先于目标校验，符合 429-before-404 惯例）
 	sendWater("no-such-island", "w3")
+	cdX := readResult(t, conn, 2*time.Second)
+	if cdX.OK || cdX.Code != "cooldown" {
+		t.Fatalf("冷却期内应返回 cooldown，实际 %+v", cdX)
+	}
+
+	// 等冷却结束（2.5s 权威下限 + 余量）再验证目标级错误
+	time.Sleep(2600 * time.Millisecond)
+	sendWater("no-such-island", "w3b")
+	nf := readResult(t, conn, 2*time.Second)
+	if nf.OK || nf.Code != "not_found" {
+		t.Fatalf("未知植物应返回 not_found，实际 %+v", nf)
+	}
 	sendWater("origin", "")
-	sendWater("rain", "w4")
-	expectNoMessage(t, conn, 500*time.Millisecond)
+	br := readResult(t, conn, 2*time.Second)
+	if br.OK || br.Code != "bad_request" {
+		t.Fatalf("空 eventId 应返回 bad_request，实际 %+v", br)
+	}
 
 	// 状态文件应停在 care=1，非法动作没有污染磁盘
-	st, ok := loadGardenState(path)
-	if !ok {
-		t.Fatal("状态文件应可读回")
+	st, err := loadGardenState(path)
+	if err != nil {
+		t.Fatalf("状态文件应可读回: %v", err)
 	}
 	if st.Plants[0].Care != 1 || st.Version != 1 {
 		t.Fatalf("非法动作不应改变状态，实际 care=%d version=%d", st.Plants[0].Care, st.Version)

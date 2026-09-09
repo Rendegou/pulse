@@ -1,5 +1,7 @@
 # PULSE：一起浇一捧水
 
+> 后续状态：独立 Demo 的浇水、植物和在场体验已由 `691b31a` / `39526cd` 迁入正式 Go/WebSocket。本文保留当时原型的交付边界；当前进度看 [05](05-progress-and-validation.md)，下一轮按 [07 当前路线](07-ai-assisted-roadmap.md)推进，不重新接入 Demo 的 Node/SSE 服务。
+
 日期：2026-09-09。状态：**独立 Demo 已实现并本地验证；核心玩法已迁入正式前端（见下），独立 HTML 保留为原型。**
 
 > 2026-09-09 后续：用户试玩后反馈“花相对岛太大、岛可以大一点”，并要求把 Demo 合并进 `static/`。执行 agent 已把浇水与植物迁到真实 Go/WebSocket 链路（`garden.go` + `water`/`plant` 协议 + 服务端落盘），并把岛半径放大到 400/300/350、植物收小到茎高 34+7/级；`articles.js` 与阅读弹窗移除。**本 Demo 的 Node SSE/HTTP 服务不再作为产品路径**，只保留为独立原型与本文件的验证记录。实现与验证见 [进度与验证](05-progress-and-validation.md) 顶部。

@@ -11,6 +11,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -28,6 +29,9 @@ const togetherWindowMs = 6000
 
 // waterCooldown 是每连接浇水冷却：比前端略短，服务端是权威下限。
 const waterCooldown = 2500 * time.Millisecond
+
+// errUnknownPlant 是"植物不存在"的哨兵错误：water 分支据此返回 not_found 而不是 save_failed。
+var errUnknownPlant = errors.New("未知植物")
 
 // PlantLast 记录一株植物最近一次被谁照料。
 // At 是服务端 unix 毫秒；ID/Name 来自当时的 Session，用于界面显示“最近照料”。
@@ -50,12 +54,14 @@ type GardenState struct {
 	Plants  []Plant `json:"plants"`
 }
 
-// Garden 持有花园状态并负责落盘。所有读写都在 mu 下进行；
-// 落盘发生在锁外，避免磁盘 IO 拖住广播路径。
+// Garden 持有花园状态并负责落盘。
+// 提交模型（G0 串行提交）：一次 Water 在 mu 内完成"候选快照 → 保存 → 发布"，
+// 保存失败丢弃候选、内存不变；mu 只保护 Garden 自己，不持有全局 Hub 锁做磁盘 IO。
 type Garden struct {
-	mu    sync.Mutex
-	state GardenState
-	path  string
+	mu        sync.Mutex
+	state     GardenState
+	path      string
+	persister func(GardenState) error // 可注入的保存器：测试用桩控制暂停/失败
 }
 
 // gardenStatePath 返回状态文件路径：PULSE_GARDEN_STATE 可覆盖（测试用临时文件），
@@ -67,14 +73,24 @@ func gardenStatePath() string {
 	return "pulse-garden-state.json"
 }
 
-// NewGarden 创建花园并尝试从磁盘恢复；文件不存在或内容不合法时从零开始。
-// 恢复失败不阻止服务启动：示例花园可以重新长起来，但不假装恢复成功。
-func NewGarden() *Garden {
+// NewGarden 创建花园并尝试从磁盘恢复。
+// 文件不存在：合法的首次启动，从零开始。
+// 读取错误 / 内容损坏：返回错误并保留原文件——不能静默把用户数据当成新花园（G0）。
+func NewGarden() (*Garden, error) {
 	g := &Garden{path: gardenStatePath(), state: freshGardenState()}
-	if loaded, ok := loadGardenState(g.path); ok {
-		g.state = loaded
+	g.persister = g.persistToFile
+	st, err := loadGardenState(g.path)
+	if err != nil {
+		return nil, fmt.Errorf("花园状态无法恢复: %w", err)
 	}
-	return g
+	g.state = st
+	return g, nil
+}
+
+// newGardenForTest 是测试边界：注入自定义路径与保存器，跳过文件初始化。
+// 生产代码不使用；NewGarden 是唯一的生产入口。
+func newGardenForTest(path string, persister func(GardenState) error) *Garden {
+	return &Garden{path: path, state: freshGardenState(), persister: persister}
 }
 
 // freshGardenState 返回三株未照料的植物（与三座示例岛一一对应）。
@@ -83,25 +99,29 @@ func freshGardenState() GardenState {
 }
 
 // loadGardenState 读取并校验状态文件。
-// 只接受形状正确的快照：三株植物、care 在 0..maxCare；否则返回 false 走初始状态。
-func loadGardenState(path string) (GardenState, bool) {
+// 文件不存在时返回初始快照且 err=nil（合法首次启动）；
+// 读取错误、JSON 解析失败、形状非法都返回错误——由调用方决定失败方式，绝不静默初始化。
+func loadGardenState(path string) (GardenState, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return GardenState{}, false
+		if errors.Is(err, os.ErrNotExist) {
+			return freshGardenState(), nil
+		}
+		return GardenState{}, err
 	}
 	var st GardenState
 	if err := json.Unmarshal(raw, &st); err != nil {
-		return GardenState{}, false
+		return GardenState{}, fmt.Errorf("状态文件不是合法 JSON: %w", err)
 	}
 	if len(st.Plants) != len(Islands()) || st.Version < 0 {
-		return GardenState{}, false
+		return GardenState{}, errors.New("状态文件形状不符（植物数量或版本非法）")
 	}
 	for i := range st.Plants {
 		if st.Plants[i].Care < 0 || st.Plants[i].Care > maxCare {
-			return GardenState{}, false
+			return GardenState{}, errors.New("状态文件中的 care 越界")
 		}
 	}
-	return st, true
+	return st, nil
 }
 
 // Snapshot 返回当前花园快照的深拷贝：调用方可以自由序列化或修改，不会影响内部状态。
@@ -124,10 +144,13 @@ func cloneGardenState(st GardenState) GardenState {
 	return out
 }
 
-// Water 记录一次照料并返回新快照与“是否与他人共同照料”。
+// Water 记录一次照料：串行提交（候选快照 → 保存 → 发布）。
 // plantID 必须是权威岛 id；未知 id 返回错误且不改状态。
-// 阶段到顶后 care 不变、version 仍递增，让界面知道这次动作被接受了。
-// 落盘失败只返回错误，内存状态与快照仍然有效——调用方可以选择不广播。
+// 保存失败：候选快照被丢弃，内存与保存前完全一致（这是 G0 的核心保证）；
+// 保存成功才发布新内存状态并返回快照。阶段到顶后 care 不变、version 仍递增。
+//
+// 并发边界：整个提交在 g.mu 内完成（含磁盘 IO），因此两个并发 Water 必然
+// 一个完整提交后另一个才开始——不会出现"旧快照更晚完成替换"的版本倒退。
 func (g *Garden) Water(plantID, sessionID, name string, now time.Time) (GardenState, bool, error) {
 	index := -1
 	for i, isl := range Islands() {
@@ -137,24 +160,30 @@ func (g *Garden) Water(plantID, sessionID, name string, now time.Time) (GardenSt
 		}
 	}
 	if index < 0 {
-		return GardenState{}, false, errors.New("未知植物")
+		return GardenState{}, false, errUnknownPlant
 	}
 
 	g.mu.Lock()
-	p := &g.state.Plants[index]
-	together := p.Last != nil && p.Last.ID != sessionID && now.UnixMilli()-p.Last.At <= togetherWindowMs
-	if p.Care < maxCare {
-		p.Care++
-	}
-	p.Last = &PlantLast{ID: sessionID, Name: name, At: now.UnixMilli()}
-	g.state.Version++
-	snapshot := cloneGardenState(g.state)
-	g.mu.Unlock()
+	defer g.mu.Unlock()
 
-	if err := g.persist(snapshot); err != nil {
-		return snapshot, together, err
+	// 候选快照：基于当前内存构建，先不发布
+	candidate := cloneGardenState(g.state)
+	together := candidate.Plants[index].Last != nil &&
+		candidate.Plants[index].Last.ID != sessionID &&
+		now.UnixMilli()-candidate.Plants[index].Last.At <= togetherWindowMs
+	if candidate.Plants[index].Care < maxCare {
+		candidate.Plants[index].Care++
 	}
-	return snapshot, together, nil
+	candidate.Plants[index].Last = &PlantLast{ID: sessionID, Name: name, At: now.UnixMilli()}
+	candidate.Version++
+
+	if err := g.persister(candidate); err != nil {
+		// 保存失败：候选丢弃，内存不变（defer 解锁时一切如旧）
+		return GardenState{}, false, fmt.Errorf("保存失败: %w", err)
+	}
+	// 保存成功才发布
+	g.state = candidate
+	return cloneGardenState(g.state), together, nil
 }
 
 // waterSeenMax 是每连接保留的照料事件 id 上限：超出后按插入顺序淘汰最旧的。
@@ -217,9 +246,10 @@ func surfaceHeight(x, y float64) float64 {
 	return 0
 }
 
-// persist 先写临时文件再原子替换：中途失败不会留下半截状态文件。
-// 目录不存在或权限不足时返回错误，由调用方决定是否降级为“只在内存中生效”。
-func (g *Garden) persist(st GardenState) error {
+// persistToFile 是默认保存器：先写临时文件再原子替换，中途失败不留下半截状态文件。
+// 注意边界：原子替换只保证"不读到半截文件"，不等于断电不丢；
+// 目录不存在或权限不足时返回错误（调用方按 save_failed 上报）。
+func (g *Garden) persistToFile(st GardenState) error {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err

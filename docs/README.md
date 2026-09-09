@@ -1,43 +1,49 @@
 # PULSE 学习与开发入口
 
-版本：协作计划 v2 · 更新：2026-09-07 · 核对源码：`4946e28`
+版本：协作路线 v3 · 更新：2026-09-09 · 核对源码：`39526cd`。
 
-现在采用 **AI 完成功能包，你练一个关键点**。基础页面、接线、重复代码与测试脚手架交给 AI；你练契约、状态、所有权、反例和关键改动。学习状态与产品进度分别记录。
+采用 **AI 完成功能包，你练一个关键点**。常规实现、接线与测试脚手架交给 AI；学习状态与产品完成状态分别记录。
 
-## 现在看这三处
+## 当前从这里开始
 
-**2026-09-09 互动试玩：[15 一起浇一捧水](15-tidal-garden-demo.md)。** 新增独立 [HTML](../outputs/pulse-tidal-garden.html) 与本地双窗口服务，试验指针在场、浇水回应和共同照料记录；保留旧视觉稿，尚未迁入正式产品。
+1. [07 当前开发路线与 agent 提示词](07-ai-assisted-roadmap.md)：详细实施边界、数据与协议、验收、首轮和后续交接文本。**当前下一包是 G0 保存一致性。**
+2. [05 进度与验证](05-progress-and-validation.md)：已有实现、历史检查、本轮复核与未验证事项。先读事实，再按路线做下一包。
+3. [guide 每轮协作方式](guide.md)：AI 怎么加速、用户如何抓住一个关键点。
 
-**2026-09-09 最新产品方向：[14 自己的小世界，真实的相遇](14-personal-worlds-direction.md)。** 每个人有自己的岛，核心是拜访、陪伴和共同留下痕迹；文章是可选内容。用户认可 [潮汐群岛 HTML](../outputs/pulse-tidal-islands.html) 的整体视觉，文章陈列仍待调整。
+下一版本的目标是：**关掉页面再回来，我的岛还在；朋友打开链接，到的确实是我的岛；他能浇水，却不能改乱我的布置。**
 
-同日实现：潮汐群岛视觉已迁入正式前端（`static/world.js` 三层画布 + `static/islands.js` 岛屿数据），后端加入权威岛屿列表与访客在场（cursor v=3、`presence` 广播）。证据与限制见 [进度与验证](05-progress-and-validation.md) 顶部；**画面是否好看仍由用户实际操作后评价**。
+顺序：**G0 保存一致性 → G1 稳定身份与个人岛 → G2 真实拜访 → G3 少量布置保存。** 暂时固定现有潮汐视觉；只修使用障碍，不开启新一轮风格重做。
 
-此前视觉探索：[13 粒子纵深](13-particle-depth-direction.md)（复盘 + §9 实现记录），保存俯瞰粒子地表、镜头纵深与三篇文章标签的尝试。该文包含不同轮次的原型和产品改动记录，具体实现以源码为准；三篇文章的摆放不能作为新方向的强制要求。
+## 当前已经有什么
 
-2026-09-08 先前记录：[11 文章岛](11-publication-islands.md) 曾是正式前端视觉实现（纵深不足）；[12 横版多层岛](12-floating-isles-stele-forest.md) 是被否定的实验（原型与截图已清理）；[10 抽象空间与性能](10-abstract-space-and-performance.md) 记录此前缓存修复与性能对照。
+潮汐群岛、植物浇水和真实远端指针已迁入正式 `static/` 与 Go/WebSocket；最新已提交源码包含 `691b31a` 的花园接入和 `39526cd` 的系统指针、贴地指针与命中区补齐。
 
-历史 UI 背景见 [09 粒子地表世界](09-particle-world-experience.md) 与 [当时的 Demo](../outputs/pulse-particle-world-demo.html)，用于理解巨大曲面和连续靠近的初衷，不作为当前验收目标。[08 旧书房方案](08-ui-redesign-brief-for-kimi.md) 保留主题、双语等背景。当前执行先读 13；下列课程进度仍需结合最新源码判断。
+当前仍是三座固定示例岛，连接身份临时生成。稳定用户、owner 关系、个人岛存储、真实邀请路由和主人编辑权限尚未实现。“打开访客窗口”是 Demo 测试入口，G2 将以真实邀请和来访流程替代。
 
-1. [新执行路线与 agent 交接文本](07-ai-assisted-roadmap.md)：当前下一包是点击脉冲，不再从 L1 重来。
-2. [进度与验证](05-progress-and-validation.md)：确认已有实现、实际检查和仍缺的证据。
-3. [每轮协作方式](guide.md)：怎样让 AI 加速，又保留独立理解和修改能力。
+本轮文档复核没有重跑 Go、Node 或浏览器程序检查，也没有确认最新提交的生产部署。此前执行 agent 的测试记录见 05，不把旧记录当成当前复测结果。
 
-推荐顺序：**点击互动 → 可靠连接 → 固定二维博客街区**。先补直接可复用的基础，再做两间房、两篇文章、两个真实访客一起逛。Host Radar 保留为独立方向，不作为博客世界的必修前置。
+## 产品方向与视觉参考
 
-## 按问题查资料
+- [14 自己的小世界，真实的相遇](14-personal-worlds-direction.md)：概念方向，核心是个人空间、来访与共同痕迹；文章是可选内容。
+- [15 一起浇一捧水](15-tidal-garden-demo.md)：独立互动 Demo 的设计、实现与验证记录。原型后来已接进正式产品，具体当前状态看 05。
+- [潮汐视觉 HTML](../outputs/pulse-tidal-islands.html)与[花园互动 HTML](../outputs/pulse-tidal-garden.html)：保留作参考，不是第二套生产服务；不要把 Demo 的 Node/SSE 再迁回 Go 产品。
+- [13 粒子纵深](13-particle-depth-direction.md)、[10 抽象空间与性能](10-abstract-space-and-performance.md)：历史视觉与性能探索，按需查阅，不决定当前实施顺序。
+- [08 旧书房方案](08-ui-redesign-brief-for-kimi.md)、[09 粒子世界](09-particle-world-experience.md)、[11 文章岛](11-publication-islands.md)、[12 横版岛](12-floating-isles-stele-forest.md)：历史方案，其中多个方向已被后续决定替代。
 
-- [项目落地方案](01-project-plan.md)：产品边界、协议、资源预算和发布条件。
-- [运行机制教材](02-runtime-guide.md)：实际事件、消息、锁、时间与绘制调用链。
-- [课程库 L0–L10](03-handwritten-lessons.md)：需要练某个概念时选一张卡，不必逐课通关。
-- [代码与注释规范](04-code-conventions.md)：AI 和手写代码共同执行的要求。
-- [原型到产品](06-prototype-to-product.md)：原始 PULSE、Host Radar 和性能愿景的专题材料。
-- [World Notes](ideas/2026-09-05-world-notes.md)：二维博客构想及独立 Demo；原型不等于真实多人服务。
-- [注释 Skill](../.agents/skills/comment-convention/SKILL.md) 与 [陪练 Skill](../.agents/skills/handwrite-coach/SKILL.md)：继续执行注释、提示与能力验收；实现分工以根目录 AGENTS.md 和新路线为准。
+## 教材与协作规范
 
-## 文档使用规则
+- [01 早期项目方案](01-project-plan.md)：早期协议与资源预算背景；与现行路线冲突时以当前源码和 07 为准。
+- [02 运行机制教材](02-runtime-guide.md)：已有 Go 与 JavaScript 调用链。
+- [03 课程库](03-handwritten-lessons.md)：按需练习，不逐课解锁产品。L1–L3、脉冲和可靠连接已有实现，不从头重做。
+- [04 代码规范](04-code-conventions.md)：注释、职责与交付约定。
+- [06 原型到产品](06-prototype-to-product.md)：早期专题背景。
+- [中文注释 Skill](../.agents/skills/comment-convention/SKILL.md)与[手写陪练 Skill](../.agents/skills/handwrite-coach/SKILL.md)：提示方式继续适用；AI 与用户分工以根目录 AGENTS.md、当前 07 为准。
+- [2026-09-07 路线归档](07-ai-assisted-roadmap-2026-09-07-archive.md)：保留旧 A/B 功能包和协作来历，不执行其中旧提示词。
 
-执行顺序以新路线为准，已完成事实以进度加当前源码为准；课程里的拟定函数名不是强制架构。出现冲突先核对源码，不把旧题目重新当待办。
+## 文档维护规则
 
-当前 L1 已接通；L2 有 Hermite、段冻结和练习记录；L3a–c 已实现。不能由此推定每个概念都已独立掌握，也不要求为补齐学习记录重写整个功能。
+当前执行顺序只维护在 07；实际证据只维护在 05；README 指向二者，不在多个文档里各写一套“下一步”。
 
-归档的 Demo、概念文档和历史对话用于理解产品意图；真实行为以程序为准。`docs/references/` 保持原样，不让历史材料覆盖最新排期。
+每轮 agent 先读 AGENTS.md、README、05，再核对工作区、源码与对应功能包。发现文档落后就更新事实，不能覆盖用户现有修改。历史 Demo、references 和原型验证不能代替正式接口与真实页面的验证。
+
+每轮交付区分：有实现、有验证、用户已读懂、能独立迁移。提交、推送、部署按当次授权；main push 会触发自动部署。

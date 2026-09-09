@@ -167,7 +167,11 @@ type Hub struct {
 
 // NewHub 创建一个空的在线连接表，并挂上花园状态（从磁盘恢复或从零开始）。
 func NewHub() *Hub {
-	return &Hub{sessions: make(map[*Session]bool), garden: NewGarden()}
+	g, err := NewGarden()
+	if err != nil {
+		log.Fatalf("启动失败: %v", err) // 损坏的状态文件：保留原数据，启动失败并说明原因
+	}
+	return &Hub{sessions: make(map[*Session]bool), garden: g}
 }
 
 // Count 返回当前在线连接数。
@@ -175,6 +179,22 @@ func (h *Hub) Count() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.sessions)
+}
+
+// sendTo 只把一条消息发给指定连接（动作结果等点对点回应）。
+// 与 Broadcast 共用同一丢弃策略：慢消费者的缓冲满则丢这条并计数。
+func (h *Hub) sendTo(s *Session, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	select {
+	case s.send <- data:
+	default:
+		h.dropped.Add(1)
+	}
 }
 
 // Broadcast 把一条消息发给所有连接。
@@ -286,6 +306,19 @@ type waterMsg struct {
 	V       int    `json:"v"`
 	Plant   string `json:"plant"`
 	EventID string `json:"eventId"`
+}
+
+// waterResultMsg 是服务端只发给请求方的动作结果（G0：一次"已保存"必须可信）。
+// requestId 回带客户端的 eventId：前端只有匹配当前请求的结果才能解除等待。
+// ok=false 时 code 区分 not_found/cooldown/save_failed/bad_request；
+// 重复提交一个已成功的 eventID 返回 ok=true + duplicate，不再生长但明确确认。
+type waterResultMsg struct {
+	Type         string `json:"type"` // 恒为 water_result
+	OK           bool   `json:"ok"`
+	RequestID    string `json:"requestId"`
+	Code         string `json:"code,omitempty"`
+	RetryAfterMs int64  `json:"retryAfterMs,omitempty"`
+	Duplicate    bool   `json:"duplicate,omitempty"`
 }
 
 // plantMsg 是服务端 → 浏览器的花园广播：完整快照 + 本次变化的归属信息。
@@ -825,22 +858,43 @@ func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 		case "water":
 			var wm waterMsg
 			if err := json.Unmarshal(data, &wm); err != nil {
+				hub.sendTo(s, waterResultMsg{Type: "water_result", OK: false, Code: "bad_request"})
 				continue
 			}
 			now := time.Now()
-			// 冷却与去重是每连接的本地约束：不合法的动作整条丢弃，连接照常
+			// 协议不合法：明确拒绝（客户端能区分是协议错而不是网络丢包）
 			if wm.V != 1 || wm.EventID == "" || len(wm.EventID) > 64 || wm.Plant == "" {
+				hub.sendTo(s, waterResultMsg{Type: "water_result", OK: false, RequestID: wm.EventID, Code: "bad_request"})
 				continue
 			}
-			if now.Before(s.waterNext) || s.waterSeen[wm.EventID] {
+			// 重复提交一个已成功的请求：不再生长，但明确确认（幂等回应）
+			if s.waterSeen[wm.EventID] {
+				hub.sendTo(s, waterResultMsg{Type: "water_result", OK: true, RequestID: wm.EventID, Duplicate: true})
 				continue
 			}
+			// 冷却中：告诉客户端多久后可重试
+			if now.Before(s.waterNext) {
+				hub.sendTo(s, waterResultMsg{Type: "water_result", OK: false, RequestID: wm.EventID,
+					Code: "cooldown", RetryAfterMs: time.Until(s.waterNext).Milliseconds()})
+				continue
+			}
+
 			state, together, err := hub.garden.Water(wm.Plant, s.ID, "", now)
 			if err != nil {
-				continue // 未知植物或落盘失败：不广播，前端会收到“未确认”的提示
+				// 保存失败或未知植物：内存未变，冷却/去重都不记账，客户端可立即重试
+				code := "save_failed"
+				if errors.Is(err, errUnknownPlant) {
+					code = "not_found"
+				}
+				log.Printf("water 失败 code=%s requestId=%s session=%s err=%v", code, wm.EventID, s.ID, err)
+				hub.sendTo(s, waterResultMsg{Type: "water_result", OK: false, RequestID: wm.EventID, Code: code})
+				continue
 			}
+
+			// 动作被成功接受后才记账冷却与去重（失败不占额度）
 			s.waterNext = now.Add(waterCooldown)
 			markWaterSeen(s, wm.EventID)
+			hub.sendTo(s, waterResultMsg{Type: "water_result", OK: true, RequestID: wm.EventID})
 			hub.Broadcast(plantMsg{
 				Type: "plant", PlantID: wm.Plant, ID: s.ID, Together: together,
 				Garden: state, At: now.UnixMilli(),
