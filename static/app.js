@@ -1,12 +1,12 @@
 "use strict";
 
-/* PULSE 产品前端 · 装配层（潮汐群岛）。
+/* PULSE 产品前端 · 装配层（潮汐群岛 + 岛上花园）。
  *
- * 职责：WebSocket 连接、真实访客数据、偏好/i18n、HUD 控件、阅读页、诊断抽屉。
+ * 职责：WebSocket 连接、真实访客与花园状态、偏好/i18n、HUD 控件、照料面板、诊断抽屉。
  * 世界渲染与输入手势在 world.js；岛屿数据在 islands.js；纯计算在 pure.js；文案在 i18n.js。
  *
- * 数据真实性：访客/脉冲来自真实 /ws 连接（v3 世界坐标 + 服务端判定的岛归属）；
- * 岛屿、文章是明确标注的示例；fixture 主机事件只出现在诊断抽屉。
+ * 数据真实性：访客、指针、浇水与植物生长都来自真实 /ws 连接（v3 世界坐标 + 服务端权威
+ * 花园快照）；岛屿与植物是标注清楚的示例内容；fixture 主机事件只出现在诊断抽屉。
  */
 
 import {
@@ -26,7 +26,6 @@ import {
 import { t, tArr } from "./i18n.js";
 import * as world from "./world.js";
 import { ISLANDS } from "./islands.js";
-import { ARTICLES } from "./articles.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -40,6 +39,12 @@ const pulses = [];
 const seenPulses = new Set();
 const seenHost = new Set();
 let pulseSeq = 0;
+let waterSeq = 0;
+
+// watering 是本地照料动作状态：busy 表示已发出但未收到服务端确认；
+// nextAt 是本地冷却结束时刻（服务端还有自己的冷却，本地只是提前禁用按钮）；
+// timer 是“未确认”超时，coolTimer 是冷却结束时刷新按钮的定时器。
+const watering = { busy: false, nextAt: 0, timer: 0, coolTimer: 0 };
 
 // pending 记录自己最近一次指针的世界坐标与所在岛；dirty 表示有未发送的新位置。
 const pending = { x: 0, y: 0, island: "", dirty: false };
@@ -84,16 +89,9 @@ onPreferenceChange(() => {
 
 // ---------- 界面文案 ----------
 
-// updateText 全面刷新静态与动态界面；切换语言不改文章身份或岛的位置。
+// updateText 全面刷新静态与动态界面；切换语言不改花园状态或岛的位置。
 function updateText() {
   const lang = getPrefs().lang;
-  // 同步画布纸页上的预览文字；语言变化让陆地层失效，但不改变文章身份。
-  world.setPublicationText({
-    lang,
-    titles: ARTICLES[lang].titles,
-    summaries: ARTICLES[lang].paras.map((paragraphs) => paragraphs[0]),
-    readLabel: t(lang, "read"),
-  });
 
   document.documentElement.lang = lang;
   document.title = "PULSE · " + t(lang, "edition");
@@ -106,7 +104,6 @@ function updateText() {
   $("help").textContent = t(lang, "help");
   $("help-title").textContent = t(lang, "helpTitle");
   $("limit-copy").textContent = t(lang, "limits");
-  $("article-source").textContent = t(lang, "articleSource");
   $("status-btn").textContent = t(lang, "statusOpen");
   $("address").placeholder = t(lang, "address");
   $("system-theme").textContent = t(lang, "themeFollowSystem");
@@ -119,6 +116,8 @@ function updateText() {
   $("plus").setAttribute("aria-label", t(lang, "zoomIn"));
   $("land").setAttribute("aria-label", t(lang, "worldLabel"));
   $("ws-label").textContent = connectionLabel();
+  $("care").setAttribute("aria-label", t(lang, "careLabel"));
+  $("visit").textContent = t(lang, "visit");
 
   // 帮助文本按段落渲染，避免拼 HTML
   const copy = $("help-copy");
@@ -130,17 +129,10 @@ function updateText() {
   }
 
   renderNearby();
-  renderMobileArticles();
   updateModeText();
+  updatePlantLabel(world.getSelected());
   updateReadout();
   renderFeed();
-  // 阅读页开着时按新语言重开（保留滚动位置）
-  if ($("reader").open) {
-    const i = Number($("reader").dataset.article);
-    const top = $("reader").scrollTop;
-    openArticle(i);
-    $("reader").scrollTop = top;
-  }
 }
 
 // themeButtonLabel 显示当前主题偏好（system/light/dark → 对应文案）。
@@ -170,10 +162,11 @@ function updateModeText() {
   $("description").textContent = near ? t(lang, "nearDesc") : t(lang, "description");
   $("approach-text").textContent = near ? t(lang, "back") : t(lang, "approach");
   $("hint").textContent = near ? t(lang, "nearHint") : t(lang, "hint");
-  // 岛标签副标题显示规模提示（示例内容）
+  // 岛标签副标题显示“岛上植物”这类规模提示（示例内容）
   document.querySelectorAll(".island-label .sub").forEach((el) => {
-    el.textContent = t(lang, "articles");
+    el.textContent = t(lang, "plantMeta");
   });
+  updateCarePanel();
 }
 
 // renderNearby 重建“海的另一边”列表：三座示例岛的等价键盘入口。
@@ -202,45 +195,74 @@ function renderNearby() {
   });
 }
 
-// renderMobileArticles 重建窄屏底部的文章入口（与点击纸页等价）。
-function renderMobileArticles() {
+// ---------- 花园与照料 ----------
+
+// updateCarePanel 刷新照料面板：文案随生长阶段变化，按钮在冷却/未确认/断线时禁用。
+// 面板只在靠近状态出现；远景的入口是岛标签与附近列表。
+function updateCarePanel() {
   const lang = getPrefs().lang;
-  const host = $("mobile-articles");
-  host.replaceChildren();
-  ARTICLES[lang].titles.forEach((title, i) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = title;
-    b.addEventListener("click", () => openArticle(i));
-    host.appendChild(b);
+  const near = world.getNearState();
+  const garden = world.getGarden();
+  const plant = garden.plants[world.getSelected()] || { care: 0, last: null };
+  const stage = Math.min(3, plant.care);
+
+  $("care").hidden = !near;
+  $("care-note").textContent = tArr(lang, "careStage")[stage] || "";
+  const cooling = watering.busy || performance.now() < watering.nextAt;
+  $("water").textContent = cooling ? t(lang, "waiting") : t(lang, "water");
+  $("water").disabled = cooling || !connectionOpen();
+
+  // 最近照料记录：id 是临时连接号，不是注册用户；自己用“你”，别人用“来客 编号”。
+  const trace = plant.last
+    ? t(lang, "lastCared") + (plant.last.id === state.you ? t(lang, "you") : `${t(lang, "guest")} ${plant.last.id}`) + " · " + t(lang, "lastWatered")
+    : t(lang, "lastNone");
+  $("care-detail").textContent = t(lang, "careDetail") + " · " + trace;
+}
+
+// updatePlantLabel 刷新画布上的植物标签（三行：提示 / 阶段 / 动作）。
+// 由 world.js 在选中岛或注入新花园快照时调用，保证标签与植物指向同一株。
+function updatePlantLabel(index) {
+  const lang = getPrefs().lang;
+  const garden = world.getGarden();
+  const plant = garden.plants[index] || { care: 0, last: null };
+  world.setPlantLabelText({
+    meta: t(lang, "plantMeta"),
+    name: tArr(lang, "careStage")[Math.min(3, plant.care)] || "",
+    more: world.getNearState() ? t(lang, "water") : t(lang, "approach"),
   });
 }
 
-// ---------- 阅读 ----------
-
-// openArticle 使用真实 DOM 与示例文章，不把正文画在 Canvas 上。
-// i 越界时回退到第一篇；同时更新“下一篇”与阅读页元信息，保证标签与正文指向同一篇。
-let originFocus = null;
-function openArticle(i) {
+// waterPlant 是画布植物、植物标签与面板按钮共用的唯一照料动作。
+// 远景时先靠近；服务端确认后才改变生长阶段（本地不预先加 care）。
+function waterPlant() {
   const lang = getPrefs().lang;
-  originFocus = document.activeElement;
-  const count = ARTICLES[lang].titles.length;
-  const index = Number.isInteger(i) && i >= 0 && i < count ? i : 0;
-  $("article-meta").textContent =
-    `${t(lang, "sample")} / ${tArr(lang, "articleTags")[index] || ""} / 2 ${t(lang, "minutes")}`;
-  $("article-title").textContent = ARTICLES[lang].titles[index];
-  const body = $("article-body");
-  body.replaceChildren();
-  for (const p of ARTICLES[lang].paras[index]) {
-    const el = document.createElement("p");
-    el.textContent = p;
-    body.appendChild(el);
+  if (watering.busy || performance.now() < watering.nextAt) return;
+  if (!world.getNearState()) {
+    world.approach(world.getSelected());
+    return;
   }
-  $("reader-end").textContent = t(lang, "end");
-  const nextIndex = (index + 1) % count;
-  $("next-article").textContent = `${t(lang, "next")}：${ARTICLES[lang].titles[nextIndex]} ↗`;
-  $("reader").dataset.article = String(index);
-  if (!$("reader").open) $("reader").showModal();
+  if (!connectionOpen()) {
+    showToast(t(lang, "connecting"));
+    return;
+  }
+  const plantID = ISLANDS[world.getSelected()]?.id;
+  if (!plantID) return;
+  watering.busy = true;
+  updateCarePanel();
+  ws.send(JSON.stringify({ type: "water", v: 1, plant: plantID, eventId: `w${waterSeq++}` }));
+  // 超时未收到确认就解除禁用并提示：不假装照料成功
+  clearTimeout(watering.timer);
+  watering.timer = setTimeout(() => {
+    if (!watering.busy) return;
+    watering.busy = false;
+    showToast(t(getPrefs().lang, "waterUnconfirmed"));
+    updateCarePanel();
+  }, 5000);
+}
+
+// connectionOpen 报告 WebSocket 是否处于可发送状态。
+function connectionOpen() {
+  return !!ws && ws.readyState === WebSocket.OPEN;
 }
 
 // ---------- WebSocket ----------
@@ -260,6 +282,7 @@ function connect() {
     retry = 0;
     dot.classList.add("on");
     $("ws-label").textContent = t(getPrefs().lang, "connected");
+    updateCarePanel();
   };
   ws.onmessage = (m) => {
     let e;
@@ -274,13 +297,14 @@ function connect() {
     if (ws !== sock) return;
     dot.classList.remove("on");
     $("ws-label").textContent = t(getPrefs().lang, "reconnecting");
+    updateCarePanel();
     setTimeout(connect, Math.min(5000, 300 * 2 ** retry++));
   };
 }
 
-// onMessage 分发服务端事件：welcome 确定身份与在线表、join/leave 增减在线点、
-// cursor 进插值缓冲（世界坐标 + 服务端判定的岛）、presence 更新岛归属、
-// pulse 进效果队列、host_event 进诊断抽屉。
+// onMessage 分发服务端事件：welcome 确定身份、在线表与花园快照；join/leave 增减在线点；
+// cursor 进插值缓冲；presence 更新岛归属；pulse 进效果队列；
+// plant 是花园权威快照（浇水结果）；host_event 进诊断抽屉。
 function onMessage(e) {
   switch (e.type) {
     case "welcome":
@@ -290,10 +314,13 @@ function onMessage(e) {
         state.sessions.set(s.id, { ...s, bornAt: performance.now() });
       }
       pending.dirty = false; // 重连后旧 pending 作废
+      world.setGarden(e.garden, true);
+      updateCarePanel();
       break;
     case "join":
       state.sessions.set(e.session.id, { ...e.session, bornAt: performance.now() });
       recordEvent("join", { id: e.session.id, island: e.session.island });
+      if (e.session.id !== state.you) showToast(t(getPrefs().lang, "arrival"));
       break;
     case "leave": {
       const s = state.sessions.get(e.id);
@@ -332,6 +359,27 @@ function onMessage(e) {
       pulses.push({ wx: e.wx, wy: e.wy, bornAt: performance.now(), mine: e.id === state.you });
       if (pulses.length > 64) pulses.shift();
       recordEvent("pulse", { id: e.id, x: e.wx, y: e.wy });
+      break;
+    }
+    case "plant": {
+      // 花园权威快照：先应用状态，再播水滴效果与提示。
+      // 只有自己发起的那次会解除“未确认”状态；别人的浇水不影响本地按钮。
+      world.setGarden(e.garden);
+      world.addWaterEffect(e.plantID, e.together);
+      if (e.id === state.you) {
+        watering.busy = false;
+        clearTimeout(watering.timer);
+        watering.nextAt = performance.now() + 2500;
+        // 冷却结束时刷新面板，否则按钮会一直停在“水正在落下…”的禁用态
+        clearTimeout(watering.coolTimer);
+        watering.coolTimer = setTimeout(() => updateCarePanel(), 2600);
+        showToast(e.together ? t(getPrefs().lang, "together") : t(getPrefs().lang, "thanks"));
+      } else {
+        showToast(`${t(getPrefs().lang, "guest")} ${e.id} ${t(getPrefs().lang, "remoteWatered")}`);
+      }
+      recordEvent("water", { id: e.id, plant: islandName(e.plantID), together: e.together });
+      updateCarePanel();
+      updatePlantLabel(world.getSelected());
       break;
     }
     case "host_event": {
@@ -439,7 +487,7 @@ function presenceOverlay(ctx, now, helpers) {
   for (const [id, s] of state.sessions) {
     const isYou = id === state.you;
     // 断线后系统光标接管交互，不再重复绘制旧的本地箭头。
-    if (isYou && ws?.readyState !== WebSocket.OPEN) continue;
+    if (isYou && !connectionOpen()) continue;
     const p = isYou ? { x: s.wx, y: s.wy } : samplePosition(s, now - RENDER_DELAY);
     const sp = helpers.project(p.x, p.y);
     if (!sp) continue;
@@ -497,14 +545,9 @@ function overlayActive() {
   return false;
 }
 
-// isReading 报告阅读页/帮助页是否打开：此时暂停海浪推进与动画循环。
-function isReading() {
-  return $("reader").open || $("help-dialog").open;
-}
-
-// isModalOpen 报告是否有模态对话框打开（键盘漫游据此让路）。
+// isModalOpen 报告是否有模态对话框打开（帮助页打开时暂停海浪与键盘漫游）。
 function isModalOpen() {
-  return isReading();
+  return $("help-dialog").open;
 }
 
 // getReservedRect 返回左侧文字区的屏幕矩形，供 world.js 隐藏与之重叠的岛标签。
@@ -538,6 +581,7 @@ function renderFeed() {
     if (r.kind === "join") appendParts(msg, ["k-join", "join  "], ["b", d.id], ["", " " + t(lang, "evJoin")]);
     else if (r.kind === "leave") appendParts(msg, ["k-leave", "leave "], ["b", d.id], ["", " " + t(lang, "evLeave")]);
     else if (r.kind === "island") appendParts(msg, ["k-pulse", "island"], ["b", d.id], ["", " → " + islandName(d.island)]);
+    else if (r.kind === "water") appendParts(msg, ["k-pulse", "water "], ["b", d.id], ["", " " + t(lang, "evWater", { plant: d.plant })]);
     else if (r.kind === "pulse") appendParts(msg, ["k-pulse", "pulse "], ["b", d.id], ["", " " + t(lang, "evPulse", { x: d.x.toFixed(0), y: d.y.toFixed(0) })]);
     else if (r.kind === "host") appendParts(msg, ["k-host", "host  "], ["b", d.sourceId], ["", " " + t(lang, "evHost", { port: d.port, kind: d.kind }) + (d.mode === "fixture" ? t(lang, "evFixtureSuffix") : "")]);
     el.append(time, msg);
@@ -619,7 +663,7 @@ function showToast(text) {
   clearTimeout(toastTimer);
   $("toast").textContent = text;
   $("toast").classList.add("on");
-  toastTimer = setTimeout(() => $("toast").classList.remove("on"), 2300);
+  toastTimer = setTimeout(() => $("toast").classList.remove("on"), 3000);
 }
 
 // 光标上报：pointermove → 世界坐标记账，50ms 定时器 20Hz 发送。
@@ -705,19 +749,14 @@ $("approach").addEventListener("click", () => {
   if (world.getNearState()) world.returnAbove();
   else world.approach(world.getSelected());
 });
-$("next-article").addEventListener("click", () => {
-  const cur = Number($("reader").dataset.article) || 0;
-  openArticle((cur + 1) % ARTICLES[getPrefs().lang].titles.length);
-});
+// 面板按钮与画布上的植物共用同一个照料动作
+$("water").addEventListener("click", waterPlant);
 
-// 对话框关闭交还焦点
+// 帮助对话框关闭交还焦点
 document.querySelectorAll("[data-close]").forEach((el) => {
   el.addEventListener("click", () => $(el.dataset.close).close());
 });
-$("reader").addEventListener("close", () => {
-  if (originFocus?.isConnected) originFocus.focus();
-  else land.focus();
-});
+$("help-dialog").addEventListener("close", () => land.focus());
 
 // ---------- 启动 ----------
 
@@ -729,14 +768,17 @@ world.initWorld(
     onIslandSelect: () => {
       renderNearby();
       updateModeText();
+      updatePlantLabel(world.getSelected());
     },
-    // 点击纸页/标签：打开对应文章（示例内容）
-    onBookPick: (i) => openArticle(i),
-    // 靠近/退回：切换左侧文案与窄屏底部入口
+    // 点植物或植物标签：与面板按钮共用照料动作
+    onPlantWater: waterPlant,
+    // 植物标签需要按当前语言与阶段刷新
+    onPlantLabel: (index) => updatePlantLabel(index),
+    // 靠近/退回：切换左侧文案、面板与窄屏布局
     onNearChange: () => updateModeText(),
     // 空地点击 = 世界坐标脉冲（打招呼）；每次单独发，不走 20Hz 采样
     onGroundPulse: (wx, wy) => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!connectionOpen()) return;
       ws.send(JSON.stringify({ type: "pulse", v: 2, clientEventId: `c${pulseSeq++}`, wx, wy }));
     },
     // 相机移动：坐标读数节流到 180ms，不每帧写 DOM
@@ -750,7 +792,7 @@ world.initWorld(
         }
       };
     })(),
-    isReading,
+    isReading: isModalOpen,
     isModalOpen,
     overlayActive,
     getReservedRect,
@@ -762,4 +804,4 @@ updateText();
 connect();
 
 // 调试句柄：module 作用域不外泄 state，显式暴露只读入口供控制台/自动化检查。
-window.PULSE = { state, camera: world.getCamera, stats: world.getStats };
+window.PULSE = { state, camera: world.getCamera, stats: world.getStats, watering };

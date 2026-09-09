@@ -98,7 +98,29 @@ footer > * { pointer-events: auto; }
   margin-left: 4px; font-weight: 400; }
 .zoom output { font: 10px/1 ui-monospace, Consolas, monospace; color: var(--muted); width: 43px;
   text-align: center; }
-#mobile-articles { display: none; }
+/* ---------- 照料面板（靠近后出现；画布上的植物是同一动作的入口） ---------- */
+#care { position: fixed; z-index: 5; right: 34px; bottom: 100px; width: 246px;
+  border-top: 1px solid var(--line); background: var(--panel); padding: 18px 20px; border-radius: 3px; }
+#care-note { font: 400 16px/1.6 Georgia, "Songti SC", serif; margin: 0 0 12px; color: var(--ink); }
+#care .care-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#care #water { display: inline-flex; align-items: center; gap: 7px; }
+#care #water::before { content: ""; width: 11px; height: 11px; border-radius: 50% 50% 50% 0;
+  background: currentColor; transform: rotate(-45deg); opacity: .75; }
+#care #visit { font-size: 12px; color: var(--muted); }
+#care #visit:hover { color: var(--gold); }
+#care-detail { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 12px 0 0; }
+.primary { background: var(--ink); color: var(--bg); padding: 8px 15px; border-radius: 3px; font-size: 12px; }
+.primary:hover { opacity: .85; }
+
+/* 植物标签：与岛标签同一层，只在靠近当前选中岛时出现 */
+.plant-label { position: absolute; left: 0; top: 0; pointer-events: auto; padding: 12px 12px 10px;
+  text-align: left; white-space: nowrap; border-left: 1px solid var(--line);
+  background: linear-gradient(90deg, var(--panel), transparent); max-width: 225px; }
+.plant-label:hover { border-color: var(--gold); }
+.plant-label .meta { font: 9px/1.7 sans-serif; color: var(--gold); letter-spacing: 2px; }
+.plant-label .name { display: block; font: 14px/1.8 Georgia, "Songti SC", serif;
+  letter-spacing: 1px; color: var(--ink); }
+.plant-label .more { display: block; font: 10px/1.8 sans-serif; color: var(--muted); margin-top: 3px; }
 
 /* ---------- 对话框 ---------- */
 dialog { color: var(--ink); background: var(--panel); border: 1px solid var(--line);
@@ -110,17 +132,6 @@ dialog p, dialog li { line-height: 2; font-size: 13px; color: var(--muted); }
 dialog .close { position: absolute; top: 14px; right: 17px; font: 24px/1 sans-serif;
   color: var(--muted); width: 36px; height: 36px; }
 .dialog-label { font-size: 10px; letter-spacing: 3px; color: var(--gold); }
-
-#reader { background: var(--paper); color: var(--paper-ink); width: 690px; padding: 65px 72px;
-  border: 0; max-height: 90dvh; scrollbar-width: thin; }
-#reader .close { color: var(--paper-ink); }
-#reader h2 { font-size: 32px; line-height: 1.55; margin: 28px 0 22px; letter-spacing: 1px; }
-#reader .dialog-label { color: #7c8062; }
-#reader .rule { width: 28px; height: 1px; background: #98a28d; margin: 34px 0; }
-#reader p { font: 16px/2.15 Georgia, "Songti SC", serif; color: var(--paper-ink); margin: 0 0 22px; }
-#reader .reader-end { font: 10px/1.8 sans-serif; color: #718379; margin-top: 45px; letter-spacing: 2px; }
-#reader .next { color: var(--paper-ink); padding: 15px 0 0; border-top: 1px solid #29444026;
-  margin-top: 15px; width: 100%; text-align: left; font-size: 12px; }
 
 /* ---------- 提示条 ---------- */
 #toast { position: fixed; z-index: 9; left: 50%; top: 88px; transform: translateX(-50%);
@@ -201,19 +212,14 @@ dialog .close { position: absolute; top: 14px; right: 17px; font: 24px/1 sans-se
   #hint { bottom: 83px; font-size: 9px; letter-spacing: 0; }
   .island-label .name { font-size: 13px; }
   .island-label .sub { font-size: 8px; }
-  .article-label { display: none; }
+  .plant-label { display: none; }
+  #care { right: 16px; left: 16px; bottom: 96px; width: auto; padding: 13px 15px; }
+  #care-note { font-size: 14px; margin-bottom: 8px; }
+  #care-detail { font-size: 10px; margin-top: 8px; }
   body.near #nearby { display: none; }
   body.near #description { display: none; }
   body.near #headline { font-size: 25px; }
   body.near #approach { margin-top: 5px; }
-  #mobile-articles { display: none; position: fixed; left: 22px; right: 22px; bottom: 119px;
-    z-index: 6; gap: 8px; flex-wrap: wrap; }
-  body.near #mobile-articles { display: flex; }
-  #mobile-articles button { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
-    font: 12px/1.5 Georgia, "Songti SC", serif; padding: 9px 12px; }
-  #reader { padding: 48px 27px; }
-  #reader h2 { font-size: 26px; }
-  #reader p { font-size: 15px; }
   dialog { padding: 35px 25px; }
   #drawer { width: 100%; }
 }

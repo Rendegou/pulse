@@ -21,11 +21,11 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<!-- 三层画布共用同一世界坐标：海面（GPU 点集）/ 岛屿与纸页 / 浪沫·漂尘·实时层 -->
+<!-- 三层画布共用同一世界坐标：海面（GPU 点集）/ 岛屿地形 / 浪沫·漂尘·植物·实时层 -->
 <canvas id="sea" aria-hidden="true"></canvas>
 <canvas id="land" tabindex="0" data-i18n-aria="worldLabel"></canvas>
 <canvas id="air" aria-hidden="true"></canvas>
-<!-- 岛标签与纸页标签由 world.js 创建并定位；容器本身不接收指针 -->
+<!-- 岛标签与植物标签由 world.js 创建并定位；容器本身不接收指针 -->
 <div id="labels"></div>
 
 <header>
@@ -48,7 +48,17 @@
 </section>
 
 <nav id="nearby" aria-label="nearby"><h2 id="nearby-title">海的另一边</h2></nav>
-<div id="mobile-articles" aria-label="articles"></div>
+
+<!-- 照料面板：靠近后出现，画布上的植物与这里的按钮是同一个动作 -->
+<section id="care" hidden>
+  <p id="care-note" aria-live="polite"></p>
+  <div class="care-actions">
+    <button id="water" class="primary"></button>
+    <a id="visit" href="/?visitor=1" target="_blank" rel="noopener"></a>
+  </div>
+  <p id="care-detail"></p>
+</section>
+
 <p id="hint"></p>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -69,13 +79,6 @@
   <span class="dialog-label">PULSE</span>
   <h2 id="help-title"></h2><div id="help-copy"></div><p id="limit-copy"></p>
   <button id="system-theme"></button></dialog>
-
-<dialog id="reader"><button class="close" data-close="reader" aria-label="×">×</button>
-  <span class="dialog-label" id="article-meta"></span>
-  <h2 id="article-title"></h2><div class="rule"></div><div id="article-body"></div>
-  <p class="reader-end" id="reader-end"></p>
-  <button class="next" id="next-article"></button>
-  <p class="source" id="article-source"></p></dialog>
 
 <!-- 运行状态抽屉：诊断内容（事件流/端口/指标/连接详情），默认收起 -->
 <aside id="drawer" hidden>

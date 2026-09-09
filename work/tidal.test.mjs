@@ -13,7 +13,7 @@ import {
   islandContains,
   resolveIsland,
 } from "../static/pure.js";
-import { ISLANDS, buildIslandGeometry } from "../static/islands.js";
+import { ISLANDS, buildIslandGeometry, islandIndex } from "../static/islands.js";
 
 // view 是一组固定的镜头参数：1440×900、焦距由窗口推导（与 world.js 同规则）。
 const view = { cx: 0, cy: 0, d: 1150, W: 1440, H: 900, F: Math.min(900 * 1.1, 1440 * 1.3) };
@@ -118,4 +118,20 @@ test("岛归属判定：中心命中自己、远处归海上、最近者优先",
   assert.equal(resolveIsland(list, 5000, 5000), null, "远处应在海上");
   assert.equal(islandContains(list[0], list[0].x, list[0].y), true);
   assert.equal(islandContains(list[0], list[0].x + list[0].r * 1.2, list[0].y), false);
+});
+
+test("岛索引映射：服务端用岛 id 标识植物，前端必须能反查下标", () => {
+  ISLANDS.forEach((isl, i) => {
+    assert.equal(islandIndex(isl.id), i, `${isl.id} 的下标应为 ${i}`);
+  });
+  assert.equal(islandIndex("no-such-island"), -1, "未知 id 返回 -1");
+});
+
+test("植物比例：整株高度不超过最小岛直径的 10%（用户反馈花相对岛太大）", () => {
+  // 与 world.js 的 TUNE.plant 一致：茎 34 + 每级 7，开花时最高 55。
+  const maxPlantHeight = 34 + 3 * 7;
+  for (const isl of ISLANDS) {
+    const ratio = maxPlantHeight / (2 * isl.r);
+    assert.ok(ratio < 0.1, `${isl.id} 的植物比例 ${ratio.toFixed(3)} 应小于 10%`);
+  }
 });

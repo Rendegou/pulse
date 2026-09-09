@@ -28,10 +28,10 @@ test("屏幕点→世界→屏幕 互逆（拖动锚定的实际用法）", () =
   }
 });
 
-test("镜头中心的地面点投在屏幕 57% 轴与 55% 高度上（构图约定）", () => {
+test("镜头中心的地面点投在屏幕 57% × 42% 处（构图约定）", () => {
   const p = projectCalc(view, view.cx, view.cy);
   assert.ok(Math.abs(p.x - view.W * 0.57) < 1e-9, "横向应以 57% 为轴");
-  assert.ok(Math.abs(p.y - view.H * 0.55) < 1e-6, "纵向应以 55% 为基准高度");
+  assert.ok(Math.abs(p.y - view.H * 0.42) < 1e-6, "纵向应以 42% 为基准高度");
 });
 
 test("远离中心的位置被曲面压远（深度变大、尺度变小）", () => {

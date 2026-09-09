@@ -51,12 +51,14 @@ type Island struct {
 }
 
 // islands 是唯一权威的固定三座岛。
-// 数值取自视觉稿 outputs/pulse-tidal-islands.html 第 55 行的 islands 数组（id 与名称另取自
-// 同一文件的 copy.zh.names）；改这里必须同步改视觉稿，否则前后端几何会错位。
+// 位置取自视觉稿 outputs/pulse-tidal-islands.html 第 55 行；半径在概念稿
+// （242/181/212）基础上放大到约 1.65 倍——用户反馈“花相对岛太大”，
+// 把岛本身做大、植物保持原有尺寸。改这里必须同步改 static/islands.js，
+// 否则前后端几何会错位（work/tidal.test.mjs 会比对两边数值）。
 var islands = []Island{
-	{ID: "origin", Name: "你的原点", X: 0, Y: 0, R: 242, SY: 0.74, Rot: -0.35, Seed: 4, Sample: true},
-	{ID: "rain", Name: "雨后手记", X: -1060, Y: -640, R: 181, SY: 0.70, Rot: 0.4, Seed: 12, Sample: true},
-	{ID: "letter", Name: "远山来信", X: 1030, Y: -490, R: 212, SY: 0.76, Rot: -0.7, Seed: 21, Sample: true},
+	{ID: "origin", Name: "你的原点", X: 0, Y: 0, R: 400, SY: 0.74, Rot: -0.35, Seed: 4, Sample: true},
+	{ID: "rain", Name: "雨后手记", X: -1060, Y: -640, R: 300, SY: 0.70, Rot: 0.4, Seed: 12, Sample: true},
+	{ID: "letter", Name: "远山来信", X: 1030, Y: -490, R: 350, SY: 0.76, Rot: -0.7, Seed: 21, Sample: true},
 }
 
 // islandShoreTolerance 是岸线判定容差：归一化椭圆距离 ≤ 该值视为在岛上（含岸边浅滩）。
@@ -143,6 +145,12 @@ type Session struct {
 	// lastLoggedMismatch 记录最近一次已写日志的"客户端自报岛"，只用于日志去重：
 	// 20Hz 上报里同一个错误值不该刷屏。同样在 hub.mu 下访问，不参与 JSON 序列化。
 	lastLoggedMismatch string
+
+	// 照料限频与去重（只在 readPump 中访问，不需要额外锁）：
+	// waterNext 是下一次允许浇水的最早时刻；waterSeen 是最近 64 次事件 id。
+	waterNext time.Time
+	waterSeen map[string]bool
+	waterRing []string
 }
 
 // ---------- Hub ----------
@@ -153,11 +161,12 @@ type Hub struct {
 	sessions map[*Session]bool
 	dropped  atomic.Uint64 // 因慢消费被丢弃的消息数
 	eventSeq atomic.Uint64 // 脉冲事件的单调序号（eventId 来源）
+	garden   *Garden       // 服务端权威的植物状态（落盘、去重、共同照料判定）
 }
 
-// NewHub 创建一个空的在线连接表。
+// NewHub 创建一个空的在线连接表，并挂上花园状态（从磁盘恢复或从零开始）。
 func NewHub() *Hub {
-	return &Hub{sessions: make(map[*Session]bool)}
+	return &Hub{sessions: make(map[*Session]bool), garden: NewGarden()}
 }
 
 // Count 返回当前在线连接数。
@@ -206,10 +215,11 @@ func (h *Hub) Snapshot() []Session {
 // 服务端 → 浏览器的消息。数据面先用 JSON（文档 Phase 2 之前允许），
 // 二进制协议是后面的手写课程。
 type welcomeMsg struct {
-	Type     string    `json:"type"`
-	You      string    `json:"you"`
-	Islands  []Island  `json:"islands"` // 权威岛列表：客户端用它生成几何，不允许自造岛
-	Sessions []Session `json:"sessions"`
+	Type     string      `json:"type"`
+	You      string      `json:"you"`
+	Islands  []Island    `json:"islands"` // 权威岛列表：客户端用它生成几何，不允许自造岛
+	Garden   GardenState `json:"garden"`  // 花园快照：新连接据此重建生长状态
+	Sessions []Session   `json:"sessions"`
 }
 type joinMsg struct {
 	Type    string  `json:"type"`
@@ -263,6 +273,29 @@ type presenceMsg struct {
 // msgHead 只取消息的 type 字段，用于按类型白名单分发到各自的解析结构。
 type msgHead struct {
 	Type string `json:"type"`
+}
+
+// waterMsg 是浏览器 → 服务端的照料请求（给岛上的植物浇水）。
+// Plant 是权威岛 id；EventID 供服务端去重，避免同一次点击因重发被计两次。
+// 版本 v 保留给后续动作扩展；当前只接受 v=1。
+type waterMsg struct {
+	Type    string `json:"type"`
+	V       int    `json:"v"`
+	Plant   string `json:"plant"`
+	EventID string `json:"eventId"`
+}
+
+// plantMsg 是服务端 → 浏览器的花园广播：完整快照 + 本次变化的归属信息。
+// Together 表示这次照料落在 togetherWindowMs 窗口内、且由另一个连接完成。
+// 客户端只接受不倒退的 Version；welcome 里的 garden 可以显式重设。
+type plantMsg struct {
+	Type     string      `json:"type"`
+	PlantID  string      `json:"plantId"`
+	ID       string      `json:"id"` // 本次照料的连接 id
+	Name     string      `json:"name"`
+	Together bool        `json:"together"`
+	Garden   GardenState `json:"garden"`
+	At       int64       `json:"at"`
 }
 
 // pulseMsg 是浏览器 → 服务端的点击脉冲请求。
@@ -579,11 +612,17 @@ func main() {
 	}
 
 	http.Handle("/ws", wsHandler{hub})
-	// 健康检查：供部署脚本和巡检确认进程活着、在收连接、带多少座权威岛
+	// 健康检查：供部署脚本和巡检确认进程活着、在收连接、带多少座权威岛，
+	// 以及花园当前的生长阶段（不暴露照料者身份，只看阶段）。
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		plants := hub.garden.Snapshot().Plants
+		care := make([]int, 0, len(plants))
+		for _, p := range plants {
+			care = append(care, p.Care)
+		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		fmt.Fprintf(w, `{"status":"ok","conns":%d,"islands":%d,"uptime_s":%d}`,
-			hub.Count(), len(Islands()), int64(time.Since(startedAt).Seconds()))
+		fmt.Fprintf(w, `{"status":"ok","conns":%d,"islands":%d,"plants":%d,"care":%v,"uptime_s":%d}`,
+			hub.Count(), len(Islands()), len(plants), care, int64(time.Since(startedAt).Seconds()))
 	})
 	// 静态文件禁缓存：开发期改完刷新就生效，不被旧 app.js 拖住
 	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -631,6 +670,8 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// 脉冲令牌桶：初始满桶（4），允许新访客一次小爆发
 		pulseTokens: 4,
 		pulseLast:   time.Now(),
+		// 照料事件去重表：只保留最近 64 个事件 id，超出后按插入顺序淘汰
+		waterSeen: make(map[string]bool),
 	}
 	// 出生位置用加密随机数散落在世界范围内，再按权威判定写归属：
 	// 出生在岛上就带岛，出生在海上就是 ""，客户端不需要自己猜。
@@ -651,9 +692,12 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("leave %s（在线 %d）", s.ID, h.hub.Count())
 	}()
 
-	// 先告诉新连接“你是谁、都有谁在线”，再向大家广播你的到来。
+	// 先告诉新连接“你是谁、都有谁在线、花园现在什么样”，再向大家广播你的到来。
 	// welcome 写失败不能继续：直接返回，defer 完成清理。
-	if err := conn.WriteJSON(welcomeMsg{Type: "welcome", You: s.ID, Islands: Islands(), Sessions: h.hub.Snapshot()}); err != nil {
+	if err := conn.WriteJSON(welcomeMsg{
+		Type: "welcome", You: s.ID, Islands: Islands(),
+		Garden: h.hub.garden.Snapshot(), Sessions: h.hub.Snapshot(),
+	}); err != nil {
 		return
 	}
 	h.hub.Broadcast(joinMsg{Type: "join", Session: *s})
@@ -770,6 +814,30 @@ func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 				WX:            x,
 				WY:            y,
 				At:            time.Now().UnixMilli(),
+			})
+
+		case "water":
+			var wm waterMsg
+			if err := json.Unmarshal(data, &wm); err != nil {
+				continue
+			}
+			now := time.Now()
+			// 冷却与去重是每连接的本地约束：不合法的动作整条丢弃，连接照常
+			if wm.V != 1 || wm.EventID == "" || len(wm.EventID) > 64 || wm.Plant == "" {
+				continue
+			}
+			if now.Before(s.waterNext) || s.waterSeen[wm.EventID] {
+				continue
+			}
+			state, together, err := hub.garden.Water(wm.Plant, s.ID, "", now)
+			if err != nil {
+				continue // 未知植物或落盘失败：不广播，前端会收到“未确认”的提示
+			}
+			s.waterNext = now.Add(waterCooldown)
+			markWaterSeen(s, wm.EventID)
+			hub.Broadcast(plantMsg{
+				Type: "plant", PlantID: wm.Plant, ID: s.ID, Together: together,
+				Garden: state, At: now.UnixMilli(),
 			})
 		default:
 			continue // 白名单外的类型一律忽略

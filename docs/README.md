@@ -6,6 +6,8 @@
 
 ## 现在看这三处
 
+**2026-09-09 互动试玩：[15 一起浇一捧水](15-tidal-garden-demo.md)。** 新增独立 [HTML](../outputs/pulse-tidal-garden.html) 与本地双窗口服务，试验指针在场、浇水回应和共同照料记录；保留旧视觉稿，尚未迁入正式产品。
+
 **2026-09-09 最新产品方向：[14 自己的小世界，真实的相遇](14-personal-worlds-direction.md)。** 每个人有自己的岛，核心是拜访、陪伴和共同留下痕迹；文章是可选内容。用户认可 [潮汐群岛 HTML](../outputs/pulse-tidal-islands.html) 的整体视觉，文章陈列仍待调整。
 
 同日实现：潮汐群岛视觉已迁入正式前端（`static/world.js` 三层画布 + `static/islands.js` 岛屿数据），后端加入权威岛屿列表与访客在场（cursor v=3、`presence` 广播）。证据与限制见 [进度与验证](05-progress-and-validation.md) 顶部；**画面是否好看仍由用户实际操作后评价**。

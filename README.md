@@ -29,11 +29,11 @@ node --check static/world.js
 node --check static/islands.js
 node --check static/pure.js
 node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs work/world.test.mjs work/tidal.test.mjs
-node work/check-tidal-ui.cjs http://127.0.0.1:8090   # 需要 go run . 正在运行
+node work/check-garden-ui.cjs http://127.0.0.1:8090   # 需要 go run . 正在运行
 git diff --check
 ```
 
-`main_test.go` 有 Go 行为测试：`validatePulse`/`validateCursor` 的字段边界、令牌桶、权威岛判定，以及慢消费者回收和 presence 广播两条真实 WebSocket 集成用例。测试通过只覆盖这些路径，不等于浏览器端和部署环境已验证。具体检查层级见 [进度与验证](docs/05-progress-and-validation.md)。
+`main_test.go` 与 `garden_test.go` 有 Go 行为测试：`validatePulse`/`validateCursor` 的字段边界、令牌桶、权威岛判定、慢消费者回收与 presence 广播两条真实 WebSocket 集成用例，以及花园的落盘恢复、阶段上限、共同照料窗口、浇水去重与冷却。测试通过只覆盖这些路径，不等于浏览器端和部署环境已验证。具体检查层级见 [进度与验证](docs/05-progress-and-validation.md)。
 
 ## 协作方式
 

@@ -115,8 +115,9 @@ export function tidalTilt(d) {
 }
 
 // projectCalc 把世界坐标投到屏幕（潮汐群岛透视）。
-// view = { cx, cy, d, W, H, F }：cx/cy 是相机中心，d 是相机距离，F 是焦距（像素·世界单位）。
+// view = { cx, cy, d, W, H, F }：cx/cy 是镜头中心，d 是相机距离，F 是焦距（像素·世界单位）。
 // z 是高出海面的高度，会同时改变屏幕位置和尺度（越高越靠近相机→越大）。
+// 构图约定：镜头中心投在屏幕 57% × 42% 处——岛与植物落在中上部，下方留出海面与 UI 空间。
 // 返回 {x, y, s, d}：屏幕坐标、像素尺度、该点的相机深度；
 // 越过近裁剪（深度 < 45）时返回 null，调用方必须跳过而不是画到屏幕上。
 export function projectCalc(view, x, y, z = 0) {
@@ -129,7 +130,7 @@ export function projectCalc(view, x, y, z = 0) {
   const s = view.F / depth;
   return {
     x: view.W * 0.57 + dx * s,
-    y: view.H * 0.55 + (dy * co - h * si) * s,
+    y: view.H * 0.42 + (dy * co - h * si) * s,
     s,
     d: depth,
   };
@@ -140,7 +141,7 @@ export function projectCalc(view, x, y, z = 0) {
 // 返回值总是有限数——调用方不需要处理 null，但不能假定它一定在视口内。
 export function unprojectCalc(view, sx, sy) {
   let x = view.cx + (sx - view.W * 0.57) * view.d / view.F;
-  let y = view.cy + (sy - view.H * 0.55) * view.d / view.F;
+  let y = view.cy + (sy - view.H * 0.42) * view.d / view.F;
   for (let i = 0; i < 7; i++) {
     const p = projectCalc(view, x, y, 0);
     const px = projectCalc(view, x + 1, y, 0);

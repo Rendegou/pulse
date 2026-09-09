@@ -5,7 +5,7 @@
 //   后端才是权威；这里只是同一份参数的客户端镜像（缺失时页面仍可离线渲染示例岛）。
 // - 岛的粒子、岸线轮廓是 (seed, 参数) 的确定性函数，只在启动时构建一次并缓存；
 //   镜头移动只重新投影已缓存的世界坐标，不重新随机生成。
-// - 文章挂在岛上，是示例内容（articles.js），不代表真实博客导入。
+// - 每座岛有一株示例植物（花园状态由服务端权威给出），不是真实用户内容。
 
 import {
   islandBoundary,
@@ -13,17 +13,25 @@ import {
   islandTerrainHeight,
 } from "./pure.js";
 
-// ISLANDS 是示例个人空间（三座示例岛）。article 为 null 表示这座岛没有文章入口。
-// 参数与后端保持一致；名称走 i18n，不用这里的 name 直接显示。
+// ISLANDS 是示例个人空间（三座示例岛）。
+// 半径在潮汐概念稿（242/181/212）基础上整体放大到约 1.65 倍：用户反馈
+// “花相对岛太大”，于是把岛本身做大、植物保持原有绝对尺寸，比例回到
+// “岛上的一个小花园”。参数必须与后端 main.go 的 Islands() 一致。
 export const ISLANDS = [
-  { id: "origin", name: "origin", x: 0, y: 0, r: 242, sy: 0.74, rot: -0.35, seed: 4, article: 0 },
-  { id: "rain", name: "rain", x: -1060, y: -640, r: 181, sy: 0.70, rot: 0.4, seed: 12, article: 1 },
-  { id: "letter", name: "letter", x: 1030, y: -490, r: 212, sy: 0.76, rot: -0.7, seed: 21, article: 2 },
+  { id: "origin", name: "origin", x: 0, y: 0, r: 400, sy: 0.74, rot: -0.35, seed: 4 },
+  { id: "rain", name: "rain", x: -1060, y: -640, r: 300, sy: 0.70, rot: 0.4, seed: 12 },
+  { id: "letter", name: "letter", x: 1030, y: -490, r: 350, sy: 0.76, rot: -0.7, seed: 21 },
 ];
 
 // islandById 按 id 取岛；未知 id 返回 null（后端可能发来本地还没有的岛）。
 export function islandById(id) {
   return ISLANDS.find((i) => i.id === id) || null;
+}
+
+// islandIndex 返回岛在权威列表中的下标；未知 id 返回 -1。
+// 服务端用岛 id 标识植物，前端需要它映射到本地的岛索引。
+export function islandIndex(id) {
+  return ISLANDS.findIndex((i) => i.id === id);
 }
 
 // buildIslandGeometry 生成一座岛的静态几何并写回该岛对象（只调用一次）。
@@ -72,16 +80,10 @@ export function landPoint(isl, a, r) {
   return islandLocalToWorld(isl, x, y, islandTerrainHeight(isl, x, y));
 }
 
-// islandPoint 把岛内局部坐标（含离地高度 z）投成世界坐标，供纸页与装饰共用。
-// z 是相对岛面的额外高度：纸页浮在岛上，不是贴地。
+// islandPoint 把岛内局部坐标（含离地高度 z）投成世界坐标，供植物与装饰共用。
+// z 是相对岛面的额外高度：植物长在地形之上，不是贴地平面。
 export function islandPoint(isl, x, y, z = 0) {
   return islandLocalToWorld(isl, x, y, islandTerrainHeight(isl, x, y) + z);
-}
-
-// articleOnIsland 返回这座岛挂的文章索引；没有文章时返回 -1。
-// 一处定义，避免 app.js 与渲染器各判一次导致标题与纸页错位。
-export function articleOnIsland(isl) {
-  return Number.isInteger(isl.article) ? isl.article : -1;
 }
 
 // hashPair 是 buildIslandGeometry 专用的稳定散列（与 pure.hash 同族但独立种子域）。

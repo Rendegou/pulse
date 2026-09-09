@@ -1,31 +1,41 @@
-// world.js — 潮汐群岛世界引擎：相机、投影、粒子海面、岛屿、纸页、DOM 标签、输入手势。
+// world.js — 潮汐群岛世界引擎：相机、投影、粒子海面、岛屿、植物、DOM 标签、输入手势。
 //
 // 三层画布各司其职，共用同一套世界坐标与投影（pure.js 的 projectCalc）：
 // - sea：海面粒子，优先 WebGL 点集（一次绘制调用约 39 万点），WebGL 不可用时退回 Canvas 2D。
-// - land：岛屿地形与纸页，只在镜头/主题/语言变化时重绘（静止时零重绘）。
-// - air：贴岸浪沫、漂尘与实时层（真实访客指针、点击脉冲），每帧绘制。
+// - land：岛屿地形，只在镜头/主题/语言变化时重绘（静止时零重绘）。
+// - air：贴岸浪沫、漂尘、植物与实时层（真实访客指针、点击脉冲、浇水效果），每帧绘制。
 //
-// 数据边界：岛的参数来自 islands.js（与后端一致），文章文本由 app.js 注入；
-// 本模块不碰网络，真实访客与脉冲由 app.js 通过 setOverlay 注入。
+// 数据边界：岛的参数来自 islands.js（与后端一致），植物生长阶段由服务端权威给出
+// （app.js 通过 setGarden 注入）；本模块不碰网络，真实访客与脉冲由 setOverlay 注入。
 
 import { projectCalc, unprojectCalc, clamp, smoothstep, tidalTilt, pointInQuad } from "./pure.js";
-import { ISLANDS, buildIslandGeometry, islandPoint, articleOnIsland } from "./islands.js";
+import { ISLANDS, buildIslandGeometry, islandPoint, islandIndex } from "./islands.js";
 
 // ---------- 可调审美参数 ----------
 
 const TUNE = {
   dMin: 270,             // 最近镜头距离（世界单位）
   dMax: 2500,            // 最远镜头距离
-  dNear: 455,            // 靠近岛屿时的落位距离
-  dNearMobile: 390,      // 窄屏落位距离（更近，避免岛缩成小点）
-  dOverview: 1150,       // 远景距离
-  dOverviewMobile: 850,
+  dNear: 570,            // 靠近岛屿时的落位距离（岛半径 400 时约占视口一半宽度）
+  dNearMobile: 620,
+  dOverview: 1500,       // 远景距离：三座岛都在画面内，彼此留出海面
+  dOverviewMobile: 1150,
   followMs: 150,         // 飞行/靠近的跟随时间常数（毫秒）：约 0.5 秒收敛
   directMs: 45,          // 直接操控的跟随时间常数：拖动要跟手
-  nearThreshold: 680,    // 进入“靠近”状态的距离阈值
-  labelFade: [690, 540], // 纸页标签淡入的距离区间
+  nearThreshold: 800,    // 进入“靠近”状态的距离阈值
+  labelFade: [820, 640], // 植物标签淡入的距离区间
   waterInterval: 31,     // 海面重绘间隔（约 32fps；静止时完全跳过）
   waterGrid: 300,        // 海面点阵纵向半径（点数 = (2nx+1)×(2ny+1)）
+  // 植物比例：岛半径 400/300/350，整株最高 55 世界单位，
+  // 相对最小那座岛的直径也只有 9.2%——用户反馈“花相对岛太大”，
+  // 所以同时把岛放大、把植物收小到“岛上的一个小花园”的量级。
+  plant: {
+    x: 0, y: -12,        // 岛内局部锚点（略偏岛心上方）
+    stem: 34,            // 茎的基础高度（care=0）
+    stemPerCare: 7,      // 每级生长增加的高度（开花时 55）
+    groundRx: 22,        // 土壤点圈半径
+    groundRy: 16,
+  },
 };
 
 // ---------- 模块状态 ----------
@@ -38,7 +48,7 @@ const target = { x: 0, y: -60, d: TUNE.dOverview };
 const state = {
   selected: 0,       // 选中的岛索引（附近列表与标签共用）
   near: false,       // 是否处于“靠近”状态（镜头距离阈值）
-  hover: -1,         // 悬停的纸页索引（-1 表示无）
+  hover: false,      // 是否悬停在植物上
   raf: 0,
   time: 0,           // 海浪相位（秒）；reduced-motion 时停止推进
   dirty: true,       // 陆地层与标签需要重绘
@@ -48,17 +58,21 @@ const state = {
   frameMs: 0,        // 最近一帧渲染耗时（EWMA 平滑）
   scenePaints: 0,    // 陆地层重绘次数（验收用）
   seaPoints: 0,      // 最近一帧海面点数
-  hits: [],          // 本帧纸页命中四边形 [{index, points}]
   islands: [],       // 岛数据（启动时构建几何）
   labels: [],        // 岛标签 DOM
-  articleLabels: [], // 纸页标签 DOM
+  plantLabel: null,  // 植物标签 DOM（只跟随当前选中岛）
 };
+
+// garden 是服务端权威的花园快照：{version, plants:[{care,last}]}。
+// 渲染只读它；生长动画（growth）在本地插值，不产生业务写入。
+let garden = { version: 0, plants: [{ care: 0, last: null }, { care: 0, last: null }, { care: 0, last: null }] };
+const growth = [0, 0, 0];     // 本地动画进度，向 plants[].care 缓动
+const effects = [];           // 浇水效果（水滴与土壤光点），最多 12 条
 
 let seaCanvas, landCanvas, airCanvas, sc, lc, ac, gl;
 let W = 0, H = 0, F = 1, dpr = 1;
 let waterProgram = null, waterUniforms = null, waterCount = 0, waterBuffer = null;
 let palette = null;              // 由 app.js 注入的主题调色板
-let publicationText = { lang: "zh-CN", titles: [], summaries: [], readLabel: "" };
 let overlay = null;              // app.js 的实时层回调 (ctx, now, helpers)
 let labelHost = null;            // 标签容器 DOM
 let handlers = {};               // app.js 注入的回调
@@ -71,7 +85,7 @@ let dragMoved = false, down = null;
 
 // initWorld 绑定三块画布、构建岛屿几何并启动渲染循环。
 // 参数：{ sea, land, air, labelHost } 是 DOM 节点；callbacks 由 app.js 提供：
-// { onIslandSelect(index), onBookPick(articleIndex), onGroundPulse(wx, wy),
+// { onIslandSelect(index), onPlantWater(), onPlantLabel(index), onGroundPulse(wx, wy),
 //   onCameraMove(camera), onNearChange(near), isReading(), overlayActive(),
 //   isModalOpen(), getReservedRect() }
 export function initWorld(nodes, callbacks = {}) {
@@ -122,12 +136,36 @@ export function setPalette(p) {
   wake();
 }
 
-// setPublicationText 注入当前语言的示例文章标题/摘要/阅读标签。
-// 语言变化让陆地层与标签失效，但不改变文章身份与岛的位置。
-export function setPublicationText(content) {
-  publicationText = { ...content, titles: [...content.titles], summaries: [...content.summaries] };
-  updateArticleLabels();
+// setGarden 注入服务端权威的花园快照（welcome 与每次 plant 广播都会调一次）。
+// 只接受形状正确的快照：植物数量与本地岛数一致、care 在 0..3；
+// 版本倒退时不覆盖（重连由 app.js 传 reset=true 显式重设）。
+// 生长动画在这里被唤醒，但阶段值始终来自参数，不在这里自增。
+export function setGarden(next, reset = false) {
+  if (!next || !Array.isArray(next.plants) || next.plants.length !== state.islands.length) return;
+  if (!reset && Number.isInteger(garden.version) && next.version < garden.version) return;
+  garden = {
+    version: Number.isInteger(next.version) ? next.version : garden.version,
+    plants: next.plants.map((p) => ({
+      care: clamp(Number(p?.care) || 0, 0, 3),
+      last: p?.last && typeof p.last === "object" ? { ...p.last } : null,
+    })),
+  };
+  // 重连或快照回退时直接对齐动画，不让植物从错误的位置慢慢长回来
+  if (reset) {
+    for (let i = 0; i < growth.length; i++) growth[i] = garden.plants[i].care;
+  }
   state.dirty = true;
+  wake();
+}
+
+// addWaterEffect 记录一次浇水效果（水滴落下 → 土壤光点扩散）。
+// together 表示这次照料与另一个连接落在同一株植物上，颜色更暖。
+export function addWaterEffect(islandID, together) {
+  const index = islandIndex(islandID);
+  if (index < 0) return;
+  effects.push({ island: index, bornAt: performance.now(), together: !!together });
+  if (effects.length > 12) effects.shift();
+  state.lastSea = 0;
   wake();
 }
 
@@ -166,9 +204,25 @@ export function getSelected() {
   return state.selected;
 }
 
-// getNearState 返回是否处于靠近状态（app.js 用它决定提示文案与标签形态）。
+// getNearState 返回是否处于靠近状态（app.js 用它决定提示文案与动作语义）。
 export function getNearState() {
   return state.near;
+}
+
+// getGarden 返回花园快照的拷贝（app.js 用来显示最近照料者，不直接改内部状态）。
+export function getGarden() {
+  return {
+    version: garden.version,
+    plants: garden.plants.map((p) => ({ care: p.care, last: p.last ? { ...p.last } : null })),
+  };
+}
+
+// setPlantLabelText 写入植物标签的三行文案（由 app.js 按当前语言与生长阶段给出）。
+export function setPlantLabelText(text) {
+  if (!state.plantLabel) return;
+  state.plantLabel.querySelector(".meta").textContent = text.meta || "";
+  state.plantLabel.querySelector(".name").textContent = text.name || "";
+  state.plantLabel.querySelector(".more").textContent = text.more || "";
 }
 
 // wake 请求下一帧；只保持一个动画请求，页面隐藏时不启动后台帧。
@@ -184,6 +238,7 @@ export function selectIsland(index) {
   if (!Number.isInteger(index) || index < 0 || index >= state.islands.length) return;
   state.selected = index;
   state.dirty = true;
+  updatePlantLabel();
   handlers.onIslandSelect && handlers.onIslandSelect(index);
   wake();
 }
@@ -199,6 +254,7 @@ export function approach(index = state.selected) {
   target.d = innerWidth < 580 ? TUNE.dNearMobile : TUNE.dNear;
   zoomAnchor = null;
   state.dirty = true;
+  updatePlantLabel();
   wake();
 }
 
@@ -253,8 +309,20 @@ function project(x, y, z = 0) {
   return projectCalc(view(), x, y, z);
 }
 
-// projectIslandPoint 投影岛内局部坐标（含离地高度 z）。
-function projectIslandPoint(isl, x, y, z = 0) {
+// plantWorld 把植物局部坐标（相对岛面）转成世界坐标：岛自转与地形高度都在这里吸收。
+function plantWorld(index, x = 0, y = 0, z = 0) {
+  const isl = state.islands[index];
+  return islandPoint(isl, TUNE.plant.x + x, TUNE.plant.y + y, z);
+}
+
+// plantProject 投影植物上的一点；越过近裁剪返回 null，调用方必须跳过。
+function plantProject(index, x = 0, y = 0, z = 0) {
+  const p = plantWorld(index, x, y, z);
+  return project(p.x, p.y, p.z);
+}
+
+// projectIslandLocal 投影岛上任意局部点（含离地高度），供漂尘与标签定位使用。
+function projectIslandLocal(isl, x, y, z) {
   const p = islandPoint(isl, x, y, z);
   return project(p.x, p.y, p.z);
 }
@@ -293,13 +361,14 @@ function frame(now) {
     state.dirty = false;
   }
   drawAir(state.time);
+  drawGarden(now);
   if (overlay) overlay(ac, now, { project, W, H });
 
   const cost = performance.now() - start;
   state.frameMs = state.frameMs ? state.frameMs * 0.9 + cost * 0.1 : cost;
 
-  // 镜头在动、实时层有活动、或海浪还在流动时继续请求下一帧
-  if (state.moving || overlayActive() || (!motionReduced && !reading)) wake();
+  // 镜头在动、实时层有活动、海浪在流、植物在生长或有浇水效果时继续出帧
+  if (state.moving || overlayActive() || (!motionReduced && !reading) || gardenActive()) wake();
 }
 
 // advance 用阻尼把 camera 拉向 target；拖动/缩放/飞行共用同一套跟随。
@@ -333,7 +402,7 @@ function advance(dt) {
   handlers.onCameraMove && handlers.onCameraMove(getCamera());
 }
 
-// isReading 报告是否正在阅读或查看帮助：此时暂停海浪推进并停止动画请求。
+// isReading 报告是否正在查看帮助或其它模态框：此时暂停海浪推进并停止动画请求。
 function isReading() {
   return handlers.isReading ? handlers.isReading() : false;
 }
@@ -341,6 +410,14 @@ function isReading() {
 // overlayActive 报告实时层是否有活动（脉冲存活或有人移动）；由 app.js 决定。
 function overlayActive() {
   return handlers.overlayActive ? handlers.overlayActive() : false;
+}
+
+// gardenActive 报告花园是否还需要继续出帧：植物正在生长或有存活的水滴效果。
+function gardenActive() {
+  for (let i = 0; i < growth.length; i++) {
+    if (Math.abs(growth[i] - garden.plants[i].care) > 0.004) return true;
+  }
+  return effects.length > 0;
 }
 
 // ---------- 海面 ----------
@@ -382,9 +459,11 @@ function initWater() {
       vec2 p = ij * stepSize;
       float n = fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
       p += (n - .5) * 1.6;
-      float wave = sin(p.x * .009 + p.y * .019 + sin(p.x * .002) * 2.2 - time * .55);
-      float crest = pow(max(0., wave), 5.);
-      float h = sin(p.x * .011 + p.y * .008 - time * .55) * 7. + sin(p.y * .019 - p.x * .004 - time * .4) * 4.;
+      float a = p.x * .012 + p.y * .008 - time * .62;
+      float b = p.y * .022 - p.x * .006 - time * .43;
+      float nearDetail = 1. - smoothstep(420., 1100., cam.z);
+      float h = sin(a) * 19. + sin(b) * 8. + sin(p.x * .056 + p.y * .034 - time * 1.05) * 2.8 * nearDetail;
+      float crest = pow(max(0., sin(a) * .7 + sin(b) * .3), 3.);
       vec2 rel = p - cam.xy;
       h -= dot(rel, rel) / 13500.;
       float dep = cam.z - rel.y * sin(tilt) - h * cos(tilt);
@@ -393,7 +472,7 @@ function initWater() {
       gl_Position = vec4(screen.x / viewport.x * 2. - 1., 1. - screen.y / viewport.y * 2., 0., 1.);
       gl_PointSize = clamp(scale * (1.2 + crest * .8), .8, 2.6) * dpr;
       float fine = step(.5, mod(abs(ij.x), 2.) + mod(abs(ij.y), 2.));
-      float opacity = mix(1., detail, fine) * (.10 + crest * .55 + n * .065) * clamp(cam.z / dep, .12, 1.25);
+      float opacity = mix(1., detail, fine) * (.065 + crest * .38 + n * .045) * clamp(cam.z / dep, .12, 1.25);
       if (dep < 45.) opacity = 0.;
       color = vec4(mix(waterColor, foamColor, crest * .8), opacity);
     }
@@ -496,10 +575,11 @@ function drawWaterCPU(t) {
         const z = seaHeight(x, y, t);
         const p = project(x, y, z);
         if (!p || p.x < 0 || p.x > W || p.y < 0 || p.y > H) continue;
-        const wave = Math.sin(x * 0.010 + y * 0.018 - t * 0.65 + Math.sin(x * 0.003) * 1.8);
-        const crest = Math.pow(Math.max(0, wave), 6);
+        const wave = Math.sin(x * 0.012 + y * 0.008 - t * 0.62) * 0.7 +
+          Math.sin(y * 0.022 - x * 0.006 - t * 0.43) * 0.3;
+        const crest = Math.pow(Math.max(0, wave), 3);
         const fog = clamp(camera.d / p.d, 0.12, 1.2);
-        const a = (0.12 + crest * 0.60 + n * 0.055) * fog * detail;
+        const a = (0.065 + crest * 0.38 + n * 0.045) * fog * detail;
         sc.fillStyle = rgba(crest > 0.45 ? palette.foam : palette.sea, a);
         const size = clamp(p.s * (1.05 + crest * 0.9), 0.7, 2.25);
         sc.fillRect(p.x, p.y, size, size);
@@ -526,28 +606,28 @@ function drawWaterCPU(t) {
   state.seaPoints = count;
 }
 
-// seaHeight 返回海面高度：两个不同方向/波长的正弦叠加（世界单位）。
+// seaHeight 返回海面高度：主涌浪、交错波与近景细浪叠加（世界单位）。
 function seaHeight(x, y, t) {
-  return Math.sin(x * 0.011 + y * 0.008 - t * 0.55) * 7 +
-    Math.sin(y * 0.019 - x * 0.004 - t * 0.4) * 4;
+  return Math.sin(x * 0.012 + y * 0.008 - t * 0.62) * 19 +
+    Math.sin(y * 0.022 - x * 0.006 - t * 0.43) * 8 +
+    Math.sin(x * 0.056 + y * 0.034 - t * 1.05) * 2.8 * (1 - smoothstep(420, 1100, camera.d));
 }
 
-// ---------- 陆地（岛屿 + 纸页） ----------
+// ---------- 陆地（岛屿） ----------
 
-// drawLand 重绘陆地层：按深度从远到近画岛，并重新登记纸页命中四边形。
-// 只在 state.dirty 时调用；静止时陆地层直接复用，零重绘。
+// drawLand 重绘陆地层：按深度从远到近画岛。只在 state.dirty 时调用；
+// 静止时陆地层直接复用，零重绘。
 function drawLand() {
   lc.clearRect(0, 0, W, H);
-  state.hits.length = 0;
   const order = state.islands.map((isl, i) => ({ i, d: project(isl.x, isl.y, 28)?.d ?? 0 }));
   order.sort((a, b) => b.d - a.d);
-  for (const { i } of order) drawIsland(state.islands[i], i);
+  for (const { i } of order) drawIsland(state.islands[i]);
   state.scenePaints++;
 }
 
-// drawIsland 绘制一座岛：底色 → 等高线 → 粒子地形 → （选中且靠近时）文章路径与纸页。
+// drawIsland 绘制一座岛：底色 → 等高线 → 粒子地形。
 // 岛完全在屏幕外时直接跳过，不为看不见的几何付出代价。
-function drawIsland(isl, index) {
+function drawIsland(isl) {
   const center = project(isl.x, isl.y, 28);
   if (!center) return;
   const margin = isl.r * center.s + 100;
@@ -579,135 +659,7 @@ function drawIsland(isl, index) {
     lc.fillStyle = rgba(coast ? palette.shore : palette.land, light * alpha * lod * (pt.r > 1 ? 0.45 : 1));
     lc.fillRect(p.x, p.y, size, size);
   }
-
-  // 只有选中的岛、且已经靠近，才画文章路径与纸页
-  const close = 1 - smoothstep(610, 1050, camera.d);
-  const article = articleOnIsland(isl);
-  if (index === state.selected && article >= 0) {
-    drawArticlePath(isl, close);
-    drawBook(isl, article, 0.45 + 0.55 * close);
-  }
   lc.restore();
-}
-
-// drawArticlePath 用一条点状路径把纸页和岸线连起来；只在近景出现，保持克制。
-function drawArticlePath(isl, close) {
-  const b = bookSlot();
-  for (let k = 0; k < 34; k++) {
-    const q = k / 33;
-    const p = projectIslandPoint(isl, b.x, b.y + q * 78, 2);
-    if (!p) continue;
-    const size = clamp(p.s * 0.65, 0.6, 1.4);
-    lc.fillStyle = rgba(palette.shore, 0.18 * close);
-    lc.fillRect(p.x, p.y, size, size);
-  }
-}
-
-// bookSlot 返回岛上纸页的布局（局部坐标 + 离地高度 + 尺寸）。
-// 每座岛一张纸页，对应它自己的文章；位置固定，缩放不会重新排版。
-function bookSlot() {
-  return { x: -20, y: -35, z: 24, angle: -0.22, w: 27, h: 36 };
-}
-
-// bookWorld 返回纸页局部顶点在世界坐标中的位置（含岛屿自转与地形高度）。
-function bookWorld(isl, b, x, y, z = 0) {
-  const c = Math.cos(b.angle), sn = Math.sin(b.angle);
-  return islandPoint(isl, b.x + x * c - y * sn, b.y + x * sn + y * c, b.z + z);
-}
-
-// drawBook 绘制纸页：接地影子 → 背面厚度 → 纸面 → 折角与排版线，并登记命中四边形。
-// 命中用真实四边形，不用大圆形，避免点到旁边的地形也打开文章。
-function drawBook(isl, article, alpha) {
-  if (alpha < 0.01) return;
-  const b = bookSlot();
-  lc.save();
-  lc.globalAlpha = alpha;
-  const w = b.w / 2, h = b.h / 2;
-  const corners = [[-w, -h], [w, -h], [w, h], [-w, h]];
-  const pts = [], back = [], shadow = [];
-  for (const [x, y] of corners) {
-    pts.push(bookWorld(isl, b, x, y));
-    back.push(bookWorld(isl, b, x + 1.6, y + 2.6, -2.4));
-    const sp = bookWorld(isl, b, x + 8, y + 12);
-    const ground = islandPoint(isl, b.x + 8, b.y + 12);
-    shadow.push({ x: sp.x, y: sp.y, z: ground.z + 1 });
-  }
-  lc.globalAlpha = alpha * 0.34;
-  polygon(lc, shadow, palette.shadow);
-  lc.globalAlpha = alpha;
-  polygon(lc, back, rgba(palette.land, 0.55), rgba(palette.foam, 0.26));
-  const quad = polygon(lc, pts, palette.paper, rgba(palette.foam, 0.8));
-  if (quad) state.hits.push({ index: article, points: quad });
-
-  // 折角
-  polygon(lc, [
-    bookWorld(isl, b, w - 7, -h),
-    bookWorld(isl, b, w, -h + 7),
-    bookWorld(isl, b, w - 7, -h + 7),
-  ], rgba(palette.land, 0.42));
-
-  // 近景足够大时写真实文本，否则用排版线示意
-  const scale = project(isl.x, isl.y, 28)?.s ?? 0;
-  if (scale > 1.2) {
-    drawPageText(b, pts, alpha, article);
-  } else {
-    drawLine(lc, [bookWorld(isl, b, -w + 5, -h + 8, 0.1), bookWorld(isl, b, -w + 13, -h + 8, 0.1)], palette.gold, 1.5);
-    for (let j = 0; j < 5; j++) {
-      const len = j === 4 ? 9 : 16;
-      drawLine(lc, [
-        bookWorld(isl, b, -w + 5, -h + 14 + j * 3, 0.1),
-        bookWorld(isl, b, -w + 5 + len, -h + 14 + j * 3, 0.1),
-      ], palette.ink, 0.65);
-    }
-  }
-  lc.restore();
-}
-
-// drawPageText 在纸页平面上写标题与摘要：用四边形两条边构成仿射变换，再裁剪到纸面。
-// article 是文章索引（不是岛索引），保证纸页上的文字与点击打开的是同一篇；
-// 字号按世界单位缩放，因此靠近时自然变大。
-function drawPageText(b, pts, alpha, article) {
-  const title = publicationText.titles[article] || "";
-  if (!title) return;
-  const a = pts[0], right = pts[1], down = pts[3];
-  lc.save();
-  lc.transform((right.x - a.x) / b.w, (right.y - a.y) / b.w, (down.x - a.x) / b.h, (down.y - a.y) / b.h, a.x, a.y);
-  lc.beginPath();
-  lc.rect(0, 0, b.w, b.h);
-  lc.clip();
-  lc.globalAlpha = alpha;
-  lc.fillStyle = palette.ink;
-  lc.font = '500 3.4px Georgia,"Songti SC",SimSun,serif';
-  const bottom = wrapText(title, 4.5, 13, b.w - 9, 4.4, 3);
-  lc.fillStyle = rgba(palette.ink, 0.62);
-  lc.font = '2px "Segoe UI","Microsoft YaHei",sans-serif';
-  wrapText(publicationText.summaries[article] || "", 4.5, bottom + 5, b.w - 9, 3.1, 3);
-  lc.fillStyle = palette.gold;
-  lc.font = '2px "Segoe UI","Microsoft YaHei",sans-serif';
-  lc.fillText(publicationText.readLabel, 4.5, b.h - 4);
-  lc.restore();
-}
-
-// wrapText 按当前字体测量换行，最多 maxLines 行；返回最后一行基线供纵向排版。
-// 中文逐字、英文按词切分；最后一行截断带省略号，不让文字溢出纸面。
-function wrapText(text, x, y, width, lineHeight, maxLines) {
-  const words = publicationText.lang === "en" ? text.split(/(\s+)/) : Array.from(text);
-  const lines = [];
-  let line = "";
-  for (const word of words) {
-    if (line && lc.measureText(line + word).width > width) { lines.push(line); line = word.trimStart(); }
-    else line += word;
-  }
-  if (line) lines.push(line);
-  for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
-    let value = lines[i];
-    if (i === maxLines - 1 && lines.length > maxLines) {
-      while (value && lc.measureText(value + "…").width > width) value = value.slice(0, -1);
-      value += "…";
-    }
-    lc.fillText(value, x, y + i * lineHeight);
-  }
-  return y + (Math.min(lines.length, maxLines) - 1) * lineHeight;
 }
 
 // drawLine 按世界坐标绘制折线；遇到近裁剪点就断开，不画跨屏尖刺。
@@ -741,11 +693,10 @@ function polygon(ctx, points, fill, stroke, width = 0.7) {
   return q;
 }
 
-// ---------- 空气层（浪沫 / 漂尘 / 悬停提示） ----------
+// ---------- 空气层（浪沫 / 漂尘） ----------
 
-// drawAir 每帧重绘：贴岸进退浪沫、岛上漂尘与悬停提示。
+// drawAir 每帧重绘：贴岸进退浪沫与岛上漂尘。
 // 全部使用与陆地相同的投影，因此浪沫贴着岸线、漂尘随高度自然放大。
-// app.js 的实时层在这之后叠加到同一块画布上。
 function drawAir(t) {
   ac.clearRect(0, 0, W, H);
   if (!palette) return;
@@ -780,25 +731,12 @@ function drawAir(t) {
       const r = isl.r * (0.6 + fractHash(j, 2, isl.seed) * 0.65);
       const x = Math.cos(ang) * r, y = Math.sin(ang) * r * isl.sy;
       const z = 55 + fractHash(j, 6, isl.seed) * 95 + Math.sin(t * 0.4 + j) * 4;
-      const p = projectIslandPoint(isl, x, y, z);
+      const p = projectIslandLocal(isl, x, y, z);
       if (!p || p.x < 0 || p.x > W || p.y < 0 || p.y > H) continue;
       ac.fillStyle = rgba(palette.shore, (0.08 + 0.12 * n) * visible);
       ac.beginPath();
       ac.arc(p.x, p.y, clamp(p.s * (0.5 + n * 0.7), 0.5, 2.3), 0, Math.PI * 2);
       ac.fill();
-    }
-  }
-  // 悬停纸页时在纸面上画一圈提示环
-  if (state.hover >= 0) {
-    const isl = state.islands[state.selected];
-    const b = bookSlot();
-    const p = projectIslandPoint(isl, b.x, b.y, b.z);
-    if (p) {
-      ac.strokeStyle = rgba(palette.shore, 0.5);
-      ac.lineWidth = 0.7;
-      ac.beginPath();
-      ac.ellipse(p.x, p.y + 10 * p.s, 24 * p.s, 15 * p.s, 0, 0, Math.PI * 2);
-      ac.stroke();
     }
   }
 }
@@ -808,14 +746,135 @@ function boundaryAt(isl, a) {
   return 1 + 0.11 * Math.sin(3 * a + isl.seed) + 0.065 * Math.cos(5 * a - isl.seed * 0.3) + 0.04 * Math.sin(2 * a + isl.seed);
 }
 
+// ---------- 植物与浇水效果 ----------
+
+// leafShape 用参数曲线构成有折面和中脉的叶片；顶点在世界空间计算，没有图片资源。
+// index 是岛索引；base 是叶柄起点（相对植物锚点的局部坐标）；
+// angle/length/width/lift 决定朝向与形状；petal=true 时用岸色画花瓣。
+function leafShape(index, base, angle, length, width, lift, opacity, petal = false) {
+  if (opacity <= 0.01) return;
+  const edgeA = [], edgeB = [], vein = [];
+  const c = Math.cos(angle), s = Math.sin(angle);
+  for (let k = 0; k <= 18; k++) {
+    const t = k / 18, w = Math.sin(t * Math.PI) * width;
+    const x = base.x + c * t * length;
+    const y = base.y + s * t * length;
+    const z = base.z + Math.sin(t * Math.PI * 0.7) * lift;
+    edgeA.push(plantWorld(index, x - s * w, y + c * w, z));
+    edgeB.push(plantWorld(index, x + s * w, y - c * w, z - 2 * Math.sin(t * Math.PI)));
+    vein.push(plantWorld(index, x, y, z + 1.5));
+  }
+  polygon(ac, [...edgeA, ...edgeB.reverse()], rgba(petal ? palette.shore : palette.land, opacity), rgba(palette.foam, 0.55 * opacity), 0.7);
+  drawLine(ac, vein, rgba(palette.shore, 0.75 * opacity), 0.85);
+  // 少量固定颗粒沿叶脉展开，让近景材质与岛屿一致；不使用每帧随机噪声。
+  for (let j = 0; j < 22; j++) {
+    const t = (j + 0.5) / 22;
+    const w = Math.sin(t * Math.PI) * width * (fractHash(j, 3, 9) - 0.5) * 1.6;
+    const p = plantProject(index, base.x + c * t * length - s * w, base.y + s * t * length + c * w, base.z + Math.sin(t * Math.PI * 0.7) * lift + 1);
+    if (!p) continue;
+    const size = clamp(p.s * 0.6, 0.5, 1.4);
+    ac.fillStyle = rgba(palette.foam, 0.52 * opacity);
+    ac.fillRect(p.x, p.y, size, size);
+  }
+}
+
+// drawPlant 绘制细茎、分层叶片和花朵；只读花园状态，生长缓动不产生业务写入。
+// index 是岛索引；g 是该岛的生长进度（0..3，由 growth 缓动而来）。
+function drawPlant(index, g) {
+  const base = plantProject(index, 0, 0, 0);
+  if (!base || base.x < -220 || base.x > W + 220 || base.y < -220 || base.y > H + 240) return;
+  const sway = motionReduced ? 0 : Math.sin(state.time * 0.8 + index) * 2;
+  const height = TUNE.plant.stem + g * TUNE.plant.stemPerCare;
+
+  // 土壤投影与细粒点圈，让植物落在岛面上
+  const ring = [];
+  for (let j = 0; j <= 64; j++) {
+    const a = (j / 64) * Math.PI * 2;
+    ring.push(plantWorld(index, Math.cos(a) * TUNE.plant.groundRx, Math.sin(a) * TUNE.plant.groundRy, 0.5));
+  }
+  polygon(ac, ring, rgba(palette.contour, 0.14), rgba(palette.shore, 0.32), 0.6);
+
+  // 细茎：随生长轻微加高，摆动只影响顶端
+  const stem = [];
+  for (let k = 0; k <= 24; k++) {
+    const t = k / 24;
+    stem.push(plantWorld(index, Math.sin(t * 2.2) * 6 + sway * t * t, 0, height * t));
+  }
+  drawLine(ac, stem, rgba(palette.foam, 0.9), Math.max(1.1, base.s * 1.4));
+
+  // 叶片：随生长逐步展开，第四片只在接近开花时出现（尺寸按植物整体比例收小）
+  leafShape(index, { x: 4, y: 0, z: height * 0.44 }, 2.9, 19 + g * 3, 5.2 + g * 0.8, 8, 0.8);
+  leafShape(index, { x: 4, y: 0, z: height * 0.70 }, -0.3, 17 + g * 3.4, 5.2 + g * 0.9, 12, 0.86);
+  if (g > 0.2) leafShape(index, { x: 4, y: 0, z: height * 0.96 }, -2.2, 13 + g * 2.2, 4 + g * 0.6, 10, Math.min(0.8, g));
+  if (g > 1.1) leafShape(index, { x: 4, y: 0, z: height * 1.18 }, 0.9, 12, 4, 7.5, Math.min(0.8, g - 1));
+
+  // 花：g>1.25 后花瓣慢慢张开，开花后中心一个金色花蕊
+  const top = plantProject(index, 4 + sway, 0, height);
+  if (top && g > 1.25) {
+    const opening = smoothstep(1.8, 3, g);
+    for (let j = 0; j < 7; j++) {
+      const angle = (j / 7) * Math.PI * 2 + 0.3;
+      leafShape(index, { x: 4 + sway, y: 0, z: height }, angle, 4 + opening * 11, 2 + opening * 3.4, 7 - opening * 2.5, 0.92, true);
+    }
+    ac.fillStyle = palette.gold;
+    ac.beginPath();
+    ac.arc(top.x, top.y - 4 * top.s, Math.max(1.7, 3.2 * top.s), 0, Math.PI * 2);
+    ac.fill();
+  }
+  if (state.hover && index === state.selected) drawLine(ac, ring, rgba(palette.shore, 0.7), 1.1);
+}
+
+// drawGarden 绘制选中岛的植物与存活的水滴效果。
+// 每帧把 growth 向服务端权威 care 缓动；reduced-motion 时直接对齐（静态变化）。
+function drawGarden(now) {
+  if (!palette) return;
+  for (let i = 0; i < garden.plants.length; i++) {
+    const desired = garden.plants[i].care;
+    growth[i] += motionReduced ? desired - growth[i] : (desired - growth[i]) * 0.055;
+  }
+  // 只画当前选中的岛：远景下其他岛不需要植物细节，也不支付这份开销
+  drawPlant(state.selected, growth[state.selected]);
+
+  for (let i = effects.length - 1; i >= 0; i--) {
+    const e = effects[i];
+    const life = (now - e.bornAt) / 2400;
+    if (life >= 1) { effects.splice(i, 1); continue; }
+    if (e.island !== state.selected) continue;
+    if (motionReduced) {
+      const p = plantProject(e.island, 0, 0, 10);
+      if (p) {
+        ac.strokeStyle = palette.gold;
+        ac.beginPath();
+        ac.ellipse(p.x, p.y, 35 * p.s, 18 * p.s, 0, 0, Math.PI * 2);
+        ac.stroke();
+      }
+      continue;
+    }
+    // 水滴按固定种子落下，随后变成向外扩散的土壤光点；每次动作最多 56 个点。
+    for (let j = 0; j < 56; j++) {
+      const n = fractHash(j, 5, 17);
+      const a = fractHash(j, 2, 8) * Math.PI * 2;
+      const q = clamp(life * 1.65 - n * 0.32, 0, 1);
+      if (q === 0) continue;
+      const r = q < 0.65 ? 12 + n * 19 : 18 + (q - 0.65) * 130;
+      const z = q < 0.65 ? 155 * (1 - q / 0.65) + 8 : 5 + Math.sin((q - 0.65) * Math.PI) * 18;
+      const p = plantProject(e.island, Math.cos(a) * r, Math.sin(a) * r, z);
+      if (!p) continue;
+      ac.fillStyle = rgba(e.together ? palette.shore : palette.foam, Math.sin(q * Math.PI) * 0.85);
+      ac.beginPath();
+      ac.ellipse(p.x, p.y, clamp(p.s * (0.6 + n), 0.6, 3), clamp(p.s * (q < 0.65 ? 3 : 1), 1, 5), 0, 0, Math.PI * 2);
+      ac.fill();
+    }
+  }
+}
+
 // ---------- DOM 标签 ----------
 
-// buildLabels 为每座岛和每张纸页创建可点击、可键盘访问的标签。
-// 标签位置每帧跟随投影；岛标签只在远景显示，纸页标签只在近景显示。
+// buildLabels 为每座岛创建可点击、可键盘访问的标签，并创建唯一的植物标签。
+// 标签位置每帧跟随投影；岛标签只在远景显示，植物标签只在靠近当前选中岛时显示。
 function buildLabels() {
   if (!labelHost) return;
   state.labels = [];
-  state.articleLabels = [];
   state.islands.forEach((isl, i) => {
     const b = document.createElement("button");
     b.className = "island-label";
@@ -824,29 +883,22 @@ function buildLabels() {
     b.addEventListener("click", () => { selectIsland(i); approach(i); });
     labelHost.appendChild(b);
     state.labels.push(b);
-
-    const article = articleOnIsland(isl);
-    if (article < 0) return;
-    const a = document.createElement("button");
-    a.className = "article-label";
-    a.innerHTML = '<span class="meta"></span><span class="name"></span><span class="more"></span>';
-    // 点纸页标签 = 打开这篇文章（等价于点画布上的纸页）。
-    a.addEventListener("click", () => handlers.onBookPick && handlers.onBookPick(article));
-    labelHost.appendChild(a);
-    state.articleLabels.push(a);
   });
+  const p = document.createElement("button");
+  p.className = "plant-label";
+  p.innerHTML = '<span class="meta"></span><span class="name"></span><span class="more"></span>';
+  // 点植物标签 = 照料这株植物（等价于点画布上的植物）。
+  p.addEventListener("click", () => handlers.onPlantWater && handlers.onPlantWater());
+  labelHost.appendChild(p);
+  state.plantLabel = p;
 }
 
-// updateArticleLabels 把当前语言的示例文章标题写进纸页标签。
-// 只改文本，不改位置；语言切换不改变文章身份。
-function updateArticleLabels() {
-  state.articleLabels.forEach((el, i) => {
-    el.querySelector(".name").textContent = publicationText.titles[i] || "";
-    el.querySelector(".more").textContent = publicationText.readLabel || "";
-  });
+// updatePlantLabel 让 app.js 为当前选中岛的植物刷新标签文本。
+function updatePlantLabel() {
+  handlers.onPlantLabel && handlers.onPlantLabel(state.selected);
 }
 
-// updateNearState 在跨越距离阈值时通知 app.js（文案与附近列表形态随之切换）。
+// updateNearState 在跨越距离阈值时通知 app.js（文案与动作语义随之切换）。
 function updateNearState() {
   const next = camera.d < TUNE.nearThreshold;
   if (next === state.near) return;
@@ -860,7 +912,7 @@ function positionLabels() {
   if (!labelHost) return;
   const reserved = handlers.getReservedRect ? handlers.getReservedRect() : null;
   state.islands.forEach((isl, i) => {
-    const p = projectIslandPoint(isl, 0, isl.r * isl.sy + 28, 5);
+    const p = projectIslandLocal(isl, 0, isl.r * isl.sy + 28, 5);
     const el = state.labels[i];
     const collision = p && reserved && p.x - 80 < reserved.right + 15 &&
       p.y - 35 < reserved.bottom + 20 && p.y + 35 > reserved.top - 10;
@@ -873,19 +925,18 @@ function positionLabels() {
       el.style.opacity = clamp(p.s * 1.3, 0.4, 1);
     }
   });
-  const isl = state.islands[state.selected];
-  const b = bookSlot();
-  const article = articleOnIsland(isl);
-  state.articleLabels.forEach((el, i) => {
-    const p = article >= 0 && article === i ? projectIslandPoint(isl, b.x, b.y, b.z) : null;
-    el.hidden = !state.near || !p || p.x < 230 || p.x > W - 50 || p.y < 115 || p.y > H - 115;
+
+  const el = state.plantLabel;
+  if (el) {
+    const p = plantProject(state.selected, 0, 0, TUNE.plant.stem + 14);
+    el.hidden = !state.near || !p || p.x < 210 || p.x > W - 60 || p.y < 120 || p.y > H - 130;
     if (!el.hidden) {
-      el.style.transform = "translate(calc(-100% - 14px), -50%)";
+      el.style.transform = "translate(calc(-100% - 16px), -50%)";
       el.style.left = p.x + "px";
-      el.style.top = (p.y + 4) + "px";
+      el.style.top = p.y + "px";
       el.style.opacity = 1 - smoothstep(TUNE.labelFade[1], TUNE.labelFade[0], camera.d);
     }
-  });
+  }
 }
 
 // ---------- 输入手势 ----------
@@ -905,9 +956,9 @@ function bindGestures() {
   });
   surface.addEventListener("pointermove", (e) => {
     if (!gesture.has(e.pointerId)) {
-      const next = pickBook(e.clientX, e.clientY);
+      const next = pickPlant(e.clientX, e.clientY);
       if (next !== state.hover) { state.hover = next; state.lastSea = 0; wake(); }
-      surface.style.cursor = next >= 0 || pickIsland(e.clientX, e.clientY) >= 0 ? "pointer" : "grab";
+      surface.style.cursor = next || pickIsland(e.clientX, e.clientY) >= 0 ? "pointer" : "grab";
       return;
     }
     const old = gesture.get(e.pointerId);
@@ -932,16 +983,17 @@ function bindGestures() {
     state.dirty = true;
     wake();
   });
-  // finishPointer 只把“没有拖动”的释放当作点击；取消不打开文章也不选岛。
+  // finishPointer 只把“没有拖动”的释放当作点击；取消不触发照料也不选岛。
   const finishPointer = (e, cancelled) => {
     if (!gesture.has(e.pointerId)) return;
     gesture.delete(e.pointerId);
     if (!gesture.size) {
       surface.classList.remove("dragging");
       if (!dragMoved && !cancelled) {
-        const book = pickBook(e.clientX, e.clientY);
-        if (book >= 0) handlers.onBookPick && handlers.onBookPick(book);
-        else {
+        if (pickPlant(e.clientX, e.clientY)) {
+          // 点植物：与按钮共用同一个照料动作；远景下由 app.js 决定先靠近
+          handlers.onPlantWater && handlers.onPlantWater();
+        } else {
           const island = pickIsland(e.clientX, e.clientY);
           if (island >= 0) { selectIsland(island); approach(island); }
           else {
@@ -997,14 +1049,12 @@ function pinchPair() {
   };
 }
 
-// pickBook 命中纸页：只有镜头已经靠近才开启阅读（远景入口是岛标签与附近列表），
-// 取最后绘制的（最上层）纸页。
-function pickBook(x, y) {
-  if (!state.near) return -1;
-  for (let i = state.hits.length - 1; i >= 0; i--) {
-    if (pointInQuad(x, y, state.hits[i].points)) return state.hits[i].index;
-  }
-  return -1;
+// pickPlant 命中植物：只对当前选中的岛判定，用屏幕距离与投影尺度做椭圆近似。
+// 远景点植物不构成命中，入口交给岛标签与附近列表。
+function pickPlant(x, y) {
+  const p = plantProject(state.selected, 0, 0, TUNE.plant.stem * 0.9);
+  if (!p) return false;
+  return Math.hypot(x - p.x, (y - p.y) * 0.75) < Math.max(30, 48 * p.s);
 }
 
 // pickIsland 命中岛屿：用椭圆包围范围判定，取归一化距离最近的一座。
@@ -1050,14 +1100,14 @@ function hexToRgb(hex) {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 
-// fractHash 是 Canvas 2D 海面与浪沫专用的稳定散列（输入是连续坐标，先取整再散列）。
+// fractHash 是 Canvas 2D 海面、浪沫与叶脉颗粒专用的稳定散列（输入先取整再散列）。
 function fractHash(x, y, s) {
   let n = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
   n = Math.imul(n ^ (n >>> 13), 1274126177);
   return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
 }
 
-// 暴露只读诊断快照：供控制台与浏览器验收核对真实镜头、渲染计数与命中状态。
+// 暴露只读诊断快照：供控制台与浏览器验收核对真实镜头、渲染计数与花园状态。
 Object.defineProperty(window, "PULSE_WORLD", {
   get() {
     return {
@@ -1065,30 +1115,29 @@ Object.defineProperty(window, "PULSE_WORLD", {
       stats: getStats(),
       selected: state.selected,
       near: state.near,
-      hits: state.hits.length,
+      garden: getGarden(),
+      growth: [...growth],
       project: (x, y, z = 0) => project(x, y, z),
       unproject: (x, y) => screenToWorld(x, y),
       islandScreen: (index) => {
         const isl = state.islands[index];
-        return isl ? projectIslandPoint(isl, 0, 0, 20) : null;
+        return isl ? projectIslandLocal(isl, 0, 0, 20) : null;
       },
-      bookScreen: (index) => {
-        const isl = state.islands[index];
-        if (!isl) return null;
-        const b = bookSlot();
-        return projectIslandPoint(isl, b.x, b.y, b.z);
-      },
+      plantScreen: (index = state.selected) => plantProject(index, 0, 0, TUNE.plant.stem * 0.9),
       snapshot: () => ({
         camera: getCamera(),
         selected: state.selected,
         near: state.near,
         moving: state.moving,
-        dirty: state.dirty,
+        hover: state.hover,
         scenePaints: state.scenePaints,
         seaPoints: state.seaPoints,
         waterRenderer: gl ? "webgl" : "canvas2d",
-        hits: state.hits.length,
         islands: state.islands.length,
+        gardenVersion: garden.version,
+        care: garden.plants.map((p) => p.care),
+        growth: [...growth],
+        effects: effects.length,
       }),
     };
   },
