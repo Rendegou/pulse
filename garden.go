@@ -11,6 +11,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -174,6 +175,46 @@ func markWaterSeen(s *Session, eventID string) {
 		delete(s.waterSeen, s.waterRing[0])
 		s.waterRing = s.waterRing[1:]
 	}
+}
+
+// ---------- 地表高度（与前端 static/pure.js 同一套公式） ----------
+
+// islandBoundaryAt 返回岸线在角度 a 处的半径倍率，seed 决定岛屿的不规则形状。
+// 与前端 islandBoundary 保持一致：两端用同一函数，指针才会落在同一处地表。
+func islandBoundaryAt(a float64, seed int) float64 {
+	s := float64(seed)
+	return 1 + 0.11*math.Sin(3*a+s) + 0.065*math.Cos(5*a-s*0.3) + 0.04*math.Sin(2*a+s)
+}
+
+// islandTerrainHeight 返回岛面在岛屿局部坐标 (x,y) 处的高度（海平面为 0）。
+// 与前端 islandTerrainHeight 同一公式：岸边贴近海面、内侧隆起，再叠加一个小丘。
+func islandTerrainHeight(isl Island, x, y float64) float64 {
+	if isl.SY <= 0 || isl.R <= 0 {
+		return 0
+	}
+	a := math.Atan2(y/isl.SY, x)
+	r := math.Hypot(x, y/isl.SY) / (isl.R * islandBoundaryAt(a, isl.Seed))
+	inner := math.Max(0, 1-r*r)
+	return 5 + 57*math.Pow(inner, 1.6) +
+		20*math.Exp(-((x+55)*(x+55)/8500+(y+40)*(y+40)/3300))
+}
+
+// surfaceHeight 返回世界坐标处的地表高度：在岛上就是地形高度，在海上就是 0。
+// 只用于把指针/会话的显示高度对齐到地表；不参与岛归属判定（那是 resolveIsland 的事）。
+func surfaceHeight(x, y float64) float64 {
+	if math.IsNaN(x) || math.IsNaN(y) {
+		return 0
+	}
+	for _, isl := range islands {
+		dx, dy := x-isl.X, y-isl.Y
+		c, sn := math.Cos(isl.Rot), math.Sin(isl.Rot)
+		lx := dx*c + dy*sn
+		ly := -dx*sn + dy*c
+		if math.Hypot(lx, ly/isl.SY) < isl.R*0.98 {
+			return islandTerrainHeight(isl, lx, ly) + 2
+		}
+	}
+	return 0
 }
 
 // persist 先写临时文件再原子替换：中途失败不会留下半截状态文件。

@@ -1,5 +1,8 @@
 # PULSE 进度、验证与学习记录
 
+> 2026-09-09 补齐（执行 agent）：用户反馈“没有仔细学 Demo、有些效果被吞掉了、系统指针不见了”。逐段比对 `work/garden-interaction.js` 与 `work/garden-demo.css` 后补回：**自己的指针交回系统光标**（画布不再 `cursor:none`，也不再重画本地箭头，只有别人的箭头是画出来的）；**别人的指针贴着地表**（服务端用与前端同一套地形公式算 `z`，写进 cursor 广播，前端平滑插值后按地表高度投影）；植物上方的**透明命中区**（随投影缩放、悬停显示动作提示、悬停时土壤圈高亮）；照料面板改为 Demo 的居中布局（含水滴图标按钮与“打开访客窗口”）；补回**在线人数**与**最近照料记录**两行文字；远处邻岛不画（概念稿的取景规则）；文案与 Demo 对齐（标题“留一片绿意”、`edition`“来过，便有回响”、`nearby`“去海的另一边”、访客称谓）。
+> 验证：Node 34/34、Go 17/17（新增 `surfaceHeight` 与前后端地形一致性两组）、浏览器 8/8（新增“系统光标可见”“命中区贴合植物”“在线人数/最近照料记录有内容”断言）。**未提交、未推送、未部署。**
+
 > 2026-09-09 合并实现（执行 agent）：用户看过 [15 花园 Demo](15-tidal-garden-demo.md) 后反馈“花相对岛太大、岛可以大一点”，并要求把 Demo 合并进正式 `static/`。本轮把**浇水与植物**从 Demo 迁到真实 Go/WebSocket 链路，不再使用 Demo 的 SSE/HTTP 服务：
 > **后端**（`garden.go` 新增 + `main.go`）：服务端权威花园（三株植物的 `care` 0..3 与最近照料者），`water` 上行 / `plant` 下行广播，每连接 2.5s 冷却与最近 64 次事件去重，6 秒内不同连接照料同一株标记 `together`，状态原子落盘（`PULSE_GARDEN_STATE` 可覆盖，默认 `pulse-garden-state.json`，已加忽略），welcome 带 `garden` 快照，`/healthz` 报植物阶段。
 > **前端**：`world.js` 的纸页换成植物（细茎/折面叶片/花瓣/土壤点圈，与岛屿共用投影），新增浇水效果层；`app.js` 接 `water`/`plant` 消息与照料面板（面板按钮、植物标签、画布植物共用同一动作）；`articles.js` 与阅读弹窗移除（文章不再是当前载体）。
@@ -63,7 +66,7 @@
 
 - `node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs work/world.test.mjs work/tidal.test.mjs`：**34/34** 通过（潮汐投影互逆、高度放大快于地面、近裁剪返回 null、岛屿几何确定性、岛参数与 `main.go` 数值一致、岛索引映射、植物比例 <10%）。
 - `node --check` 六个前端模块：语法通过。
-- `go test ./... -count=1`：**15/15** 通过（岛屿/在场 8 个 + 花园 7 个：落盘恢复、阶段上限与版本、未知植物、共同照料窗口、快照隔离、损坏状态拒绝、真实 WS 的浇水/去重/冷却）。`go vet ./...`：无诊断；`gofmt -l` 无输出。
+- `go test ./... -count=1`：**17/17** 通过（岛屿/在场 8 个 + 花园 9 个：落盘恢复、阶段上限与版本、未知植物、共同照料窗口、快照隔离、损坏状态拒绝、地表高度与前后端一致性、真实 WS 的浇水/去重/冷却）。`go vet ./...`：无诊断；`gofmt -l` 无输出。
 - `go test -race ./...`：**未验证**——本机缺 CGO/C 编译器（`-race requires cgo`；设 `CGO_ENABLED=1` 后 `gcc not found`）。需在带 CGO 的 CI 执行。
 - 浏览器验收 `node work/check-garden-ui.cjs http://127.0.0.1:8090`（真实 `go run .` + 真实 Edge 无头）：**8/8 通过**，报告 `work/garden-ui-validation.json`：三岛与 WebGL 海面、远景点植物不误触、静止陆地层零重绘、滚轮靠近 + 锚定、靠近→点植物浇水→阶段 1→刷新仍在、主题与语言持久化、390px 窄屏、双窗口真实访客与共同照料。截图存档 `docs/design/tidal-*.png`（含开花态）。
 - 修掉并复测：`TestSlowConsumerKicked` 无限速广播会同时踢掉健康连接；前端缩放锚定只修正一帧造成 36 世界单位漂移；冷却结束后按钮停在禁用态。

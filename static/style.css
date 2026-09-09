@@ -98,19 +98,38 @@ footer > * { pointer-events: auto; }
   margin-left: 4px; font-weight: 400; }
 .zoom output { font: 10px/1 ui-monospace, Consolas, monospace; color: var(--muted); width: 43px;
   text-align: center; }
-/* ---------- 照料面板（靠近后出现；画布上的植物是同一动作的入口） ---------- */
-#care { position: fixed; z-index: 5; right: 34px; bottom: 100px; width: 246px;
-  border-top: 1px solid var(--line); background: var(--panel); padding: 18px 20px; border-radius: 3px; }
-#care-note { font: 400 16px/1.6 Georgia, "Songti SC", serif; margin: 0 0 12px; color: var(--ink); }
-#care .care-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-#care #water { display: inline-flex; align-items: center; gap: 7px; }
-#care #water::before { content: ""; width: 11px; height: 11px; border-radius: 50% 50% 50% 0;
-  background: currentColor; transform: rotate(-45deg); opacity: .75; }
-#care #visit { font-size: 12px; color: var(--muted); }
-#care #visit:hover { color: var(--gold); }
-#care-detail { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 12px 0 0; }
-.primary { background: var(--ink); color: var(--bg); padding: 8px 15px; border-radius: 3px; font-size: 12px; }
-.primary:hover { opacity: .85; }
+/* ---------- 照料面板（靠近后出现在画面下方中央；画布上的植物是同一动作的入口） ---------- */
+#care { position: fixed; z-index: 5; left: 57%; bottom: 100px; transform: translateX(-50%);
+  text-align: center; width: min(430px, 90vw); pointer-events: none; }
+#care-note { font: 400 17px/1.7 Georgia, "Songti SC", serif; margin: 0 0 15px; color: var(--ink); }
+#care .care-actions { display: flex; justify-content: center; align-items: center; gap: 25px;
+  pointer-events: auto; }
+#water { background: var(--paper); color: var(--paper-ink); border-radius: 30px;
+  padding: 12px 23px; display: flex; align-items: center; gap: 9px; min-height: 46px;
+  transition: background .2s, transform .2s; }
+#water:not(:disabled):hover { transform: translateY(-2px); }
+#water:disabled { opacity: .7; cursor: default; }
+#water svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+#visit { font-size: 12px; text-decoration: none; text-underline-offset: 6px; padding: 12px 0;
+  border-bottom: 1px solid var(--line); color: var(--ink); }
+#visit:hover { border-color: var(--gold); }
+#care-detail { font-size: 11px; color: var(--muted); margin: 13px 0 0; }
+
+/* 植物上方的透明命中区：位置与大小由 world.js 按投影写入 */
+#plant-target { position: fixed; z-index: 4; pointer-events: none; transform: translate(-50%, -50%); }
+#plant-hit { display: block; width: 100%; height: 100%; pointer-events: auto; border-radius: 50%; padding: 0; }
+#plant-hit:focus-visible { outline-offset: 8px; }
+#plant-caption { position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font: 11px/1.8 sans-serif; color: var(--gold); opacity: 0;
+  transition: opacity .2s; }
+#plant-target:hover #plant-caption, #plant-target:focus-within #plant-caption { opacity: 1; }
+body:not(.near) #plant-caption { opacity: .8; }
+
+/* 在线人数与最近照料记录：纯文字，不抢画面 */
+#presence { position: fixed; z-index: 5; right: 35px; top: 75px; color: var(--muted);
+  font-size: 12px; text-align: right; pointer-events: none; }
+#trace { position: fixed; z-index: 5; left: 6.2vw; top: calc(23vh + 225px); font-size: 11px;
+  color: var(--gold); max-width: 215px; line-height: 1.9; pointer-events: none; }
 
 /* 植物标签：与岛标签同一层，只在靠近当前选中岛时出现 */
 .plant-label { position: absolute; left: 0; top: 0; pointer-events: auto; padding: 12px 12px 10px;
@@ -213,11 +232,16 @@ dialog .close { position: absolute; top: 14px; right: 17px; font: 24px/1 sans-se
   .island-label .name { font-size: 13px; }
   .island-label .sub { font-size: 8px; }
   .plant-label { display: none; }
-  #care { right: 16px; left: 16px; bottom: 96px; width: auto; padding: 13px 15px; }
-  #care-note { font-size: 14px; margin-bottom: 8px; }
-  #care-detail { font-size: 10px; margin-top: 8px; }
+  #plant-caption { display: none; }
+  #care { left: 50%; bottom: 94px; width: 92vw; }
+  #care-note { font-size: 16px; margin-bottom: 10px; }
+  #care .care-actions { gap: 22px; }
+  #care-detail { font-size: 10px; }
+  #presence { top: 64px; right: 21px; font-size: 10px; }
+  #trace { top: auto; bottom: 260px; left: 24px; max-width: 75vw; font-size: 10px; }
+  #water { padding: 11px 19px; }
   body.near #nearby { display: none; }
-  body.near #description { display: none; }
+  body.near #description { display: block; }
   body.near #headline { font-size: 25px; }
   body.near #approach { margin-top: 5px; }
   dialog { padding: 35px 25px; }

@@ -13,6 +13,9 @@ import {
   islandTerrainHeight,
 } from "./pure.js";
 
+// 岛面高度公式来自 pure.js（world.js 反解指针位置时也要用同一份），这里只做转出。
+export { islandTerrainHeight };
+
 // ISLANDS 是示例个人空间（三座示例岛）。
 // 半径在潮汐概念稿（242/181/212）基础上整体放大到约 1.65 倍：用户反馈
 // “花相对岛太大”，于是把岛本身做大、植物保持原有绝对尺寸，比例回到

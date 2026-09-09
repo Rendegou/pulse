@@ -130,6 +130,7 @@ type Session struct {
 	ID     string  `json:"id"`
 	WX     float64 `json:"wx"` // 最近已知世界坐标
 	WY     float64 `json:"wy"`
+	Z      float64 `json:"z"`      // 服务端算出的地表高度：指针/会话贴地显示用
 	Island string  `json:"island"` // 服务端判定的所在岛 id；空字符串=在海上
 	Join   int64   `json:"join"`   // unix 毫秒
 
@@ -250,12 +251,14 @@ type cursorMsg struct {
 }
 
 // cursorDeltaMsg 是服务端广播给其他人的光标增量（v=3：世界坐标 + 服务端判定的岛）。
+// Z 是服务端按地表算出的高度：指针落在岛上时贴着地形，落在海上为 0。
 type cursorDeltaMsg struct {
 	Type   string  `json:"type"`
 	V      int     `json:"v"`
 	ID     string  `json:"id"`
 	WX     float64 `json:"wx"`
 	WY     float64 `json:"wy"`
+	Z      float64 `json:"z"`
 	Island string  `json:"island"`
 }
 
@@ -673,10 +676,11 @@ func (h wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// 照料事件去重表：只保留最近 64 个事件 id，超出后按插入顺序淘汰
 		waterSeen: make(map[string]bool),
 	}
-	// 出生位置用加密随机数散落在世界范围内，再按权威判定写归属：
-	// 出生在岛上就带岛，出生在海上就是 ""，客户端不需要自己猜。
+	// 出生位置用加密随机数散落在世界范围内，再按权威判定写归属与地表高度：
+	// 出生在岛上就带岛并贴着地形，出生在海上就是 "" 且高度为 0。
 	s.WX, s.WY = spawnWorldPos()
 	s.Island = resolveIsland(s.WX, s.WY)
+	s.Z = surfaceHeight(s.WX, s.WY)
 
 	h.hub.mu.Lock()
 	h.hub.sessions[s] = true
@@ -759,13 +763,15 @@ func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 			if err != nil {
 				continue // 版本/坐标/岛名不合法：整条丢弃，连接照常
 			}
-			// 服务端权威判定：不信任客户端自报的 island
+			// 服务端权威判定：不信任客户端自报的 island；高度也由服务端按地形算出，
+			// 这样别人的指针会贴着岛面，而不是浮在海平面上。
 			isl := resolveIsland(wx, wy)
+			z := surfaceHeight(wx, wy)
 
-			// 坐标与岛归属必须一起改，且在锁内：Snapshot 和归属比较都在别处读这些字段
+			// 坐标、高度与岛归属必须一起改，且在锁内：Snapshot 和归属比较都在别处读这些字段
 			hub.mu.Lock()
 			prevIsland := s.Island
-			s.WX, s.WY, s.Island = wx, wy, isl
+			s.WX, s.WY, s.Z, s.Island = wx, wy, z, isl
 			// 自报值与权威值不一致时记日志（同一个错误值只记一次，20Hz 不刷屏）
 			logMismatch := msg.Island != isl && s.lastLoggedMismatch != msg.Island
 			if logMismatch {
@@ -776,7 +782,7 @@ func readPump(conn *websocket.Conn, s *Session, hub *Hub) {
 			if logMismatch {
 				log.Printf("cursor %s 自报 island=%q，服务端判定 %q（以服务端为准）", s.ID, msg.Island, isl)
 			}
-			hub.Broadcast(cursorDeltaMsg{Type: "cursor", V: 3, ID: s.ID, WX: wx, WY: wy, Island: isl})
+			hub.Broadcast(cursorDeltaMsg{Type: "cursor", V: 3, ID: s.ID, WX: wx, WY: wy, Z: z, Island: isl})
 
 			// 只有归属真的变化才广播 presence：同一岛内移动不刷屏
 			if isl != prevIsland {

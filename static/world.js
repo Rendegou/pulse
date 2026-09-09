@@ -9,7 +9,7 @@
 // （app.js 通过 setGarden 注入）；本模块不碰网络，真实访客与脉冲由 setOverlay 注入。
 
 import { projectCalc, unprojectCalc, clamp, smoothstep, tidalTilt, pointInQuad } from "./pure.js";
-import { ISLANDS, buildIslandGeometry, islandPoint, islandIndex } from "./islands.js";
+import { ISLANDS, buildIslandGeometry, islandPoint, islandIndex, islandTerrainHeight } from "./islands.js";
 
 // ---------- 可调审美参数 ----------
 
@@ -194,9 +194,47 @@ export function getCamera() {
   return { x: camera.x, y: camera.y, d: camera.d, zoom: TUNE.dOverview / camera.d };
 }
 
-// screenToWorld 把屏幕点反解为海平面世界坐标（光标上报与拖动锚定共用）。
+// screenToWorld 把屏幕点反解为海平面世界坐标（拖动锚定与光标上报共用）。
 export function screenToWorld(x, y) {
   return unprojectCalc(view(), x, y);
+}
+
+// screenToSurface 把屏幕点反解为“地表”世界坐标：指针落在岛上时带上地形高度，
+// 落在海上就是海平面。远端相机不同也能指向同一处地表——这是别人的指针贴地的前提。
+export function screenToSurface(x, y) {
+  const p = unprojectCalc(view(), x, y);
+  const heightAt = (wx, wy) => {
+    for (const isl of state.islands) {
+      const dx = wx - isl.x, dy = wy - isl.y;
+      const c = Math.cos(isl.rot), sn = Math.sin(isl.rot);
+      const lx = dx * c + dy * sn, ly = -dx * sn + dy * c;
+      if (Math.hypot(lx, ly / isl.sy) < isl.r * 0.98) {
+        return islandTerrainHeight(isl, lx, ly) + 2;
+      }
+    }
+    return 0;
+  };
+  for (let i = 0; i < 9; i++) {
+    const z = heightAt(p.x, p.y);
+    const q = project(p.x, p.y, z);
+    const qx = project(p.x + 1, p.y, heightAt(p.x + 1, p.y));
+    const qy = project(p.x, p.y + 1, heightAt(p.x, p.y + 1));
+    if (!q || !qx || !qy) break;
+    const a = qx.x - q.x, b = qy.x - q.x, c2 = qx.y - q.y, d = qy.y - q.y;
+    const det = a * d - b * c2;
+    if (Math.abs(det) < 1e-5) break;
+    const ex = x - q.x, ey = y - q.y;
+    p.x += clamp((ex * d - ey * b) / det, -400, 400);
+    p.y += clamp((ey * a - ex * c2) / det, -400, 400);
+  }
+  return { x: p.x, y: p.y, z: heightAt(p.x, p.y) };
+}
+
+// plantSurfacePoint 返回植物锚点在世界中的位置与高度（app.js 的透明命中区用）。
+export function plantSurfacePoint(index = state.selected) {
+  if (!Number.isInteger(index) || index < 0 || index >= state.islands.length) return null;
+  const p = plantProject(index, 0, 0, TUNE.plant.stem * 0.75);
+  return p ? { x: p.x, y: p.y, s: p.s } : null;
 }
 
 // getSelected 返回当前选中的岛索引。
@@ -207,6 +245,15 @@ export function getSelected() {
 // getNearState 返回是否处于靠近状态（app.js 用它决定提示文案与动作语义）。
 export function getNearState() {
   return state.near;
+}
+
+// setPlantHover 设置植物悬停态：在土壤圈上画一圈提示，并让面板跟随刷新。
+export function setPlantHover(on) {
+  if (state.hover === !!on) return;
+  state.hover = !!on;
+  state.lastSea = 0;
+  handlers.onPlantHover && handlers.onPlantHover(state.hover);
+  wake();
 }
 
 // getGarden 返回花园快照的拷贝（app.js 用来显示最近照料者，不直接改内部状态）。
@@ -617,11 +664,15 @@ function seaHeight(x, y, t) {
 
 // drawLand 重绘陆地层：按深度从远到近画岛。只在 state.dirty 时调用；
 // 静止时陆地层直接复用，零重绘。
+// 远处的邻岛不画（概念稿的做法）：日常视角只看到自己这一片海，
+// 拉远或点导航才发现邻岛——避免三座岛挤在同一屏。
 function drawLand() {
   lc.clearRect(0, 0, W, H);
-  const order = state.islands.map((isl, i) => ({ i, d: project(isl.x, isl.y, 28)?.d ?? 0 }));
+  const order = state.islands
+    .map((isl, i) => ({ i, isl, d: project(isl.x, isl.y, 28)?.d ?? 0 }))
+    .filter(({ i, isl }) => i === state.selected || Math.hypot(isl.x - camera.x, isl.y - camera.y) <= camera.d * 1.8);
   order.sort((a, b) => b.d - a.d);
-  for (const { i } of order) drawIsland(state.islands[i]);
+  for (const { isl } of order) drawIsland(isl);
   state.scenePaints++;
 }
 

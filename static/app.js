@@ -46,8 +46,8 @@ let waterSeq = 0;
 // timer 是“未确认”超时，coolTimer 是冷却结束时刷新按钮的定时器。
 const watering = { busy: false, nextAt: 0, timer: 0, coolTimer: 0 };
 
-// pending 记录自己最近一次指针的世界坐标与所在岛；dirty 表示有未发送的新位置。
-const pending = { x: 0, y: 0, island: "", dirty: false };
+// pending 记录自己最近一次指针的世界坐标、地表高度与所在岛；dirty 表示有未发送的新位置。
+const pending = { x: 0, y: 0, z: 0, island: "", dirty: false };
 
 // hostTimes/portTimes 记录主机事件到达时刻，速率是客户端自己数的实测值。
 const hostTimes = [];
@@ -197,8 +197,9 @@ function renderNearby() {
 
 // ---------- 花园与照料 ----------
 
-// updateCarePanel 刷新照料面板：文案随生长阶段变化，按钮在冷却/未确认/断线时禁用。
+// updateCarePanel 刷新照料面板、植物命中区与最近照料记录。
 // 面板只在靠近状态出现；远景的入口是岛标签与附近列表。
+// 命中区是一个透明的圆形按钮：位置与大小按投影跟随植物，悬停显示动作提示。
 function updateCarePanel() {
   const lang = getPrefs().lang;
   const near = world.getNearState();
@@ -209,14 +210,38 @@ function updateCarePanel() {
   $("care").hidden = !near;
   $("care-note").textContent = tArr(lang, "careStage")[stage] || "";
   const cooling = watering.busy || performance.now() < watering.nextAt;
-  $("water").textContent = cooling ? t(lang, "waiting") : t(lang, "water");
+  const action = near ? t(lang, "water") : t(lang, "approach");
+  const label = cooling ? t(lang, "waiting") : action;
+  $("water-label").textContent = label;
   $("water").disabled = cooling || !connectionOpen();
+  $("plant-caption").textContent = action;
+  $("plant-hit").setAttribute("aria-label", action);
+  $("plant-hit").disabled = cooling || !connectionOpen();
 
-  // 最近照料记录：id 是临时连接号，不是注册用户；自己用“你”，别人用“来客 编号”。
+  // 最近照料记录与在线人数：id 是临时连接号，不是注册用户
   const trace = plant.last
     ? t(lang, "lastCared") + (plant.last.id === state.you ? t(lang, "you") : `${t(lang, "guest")} ${plant.last.id}`) + " · " + t(lang, "lastWatered")
     : t(lang, "lastNone");
   $("care-detail").textContent = t(lang, "careDetail") + " · " + trace;
+  $("trace").textContent = trace;
+
+  const peers = Math.max(0, state.sessions.size);
+  $("presence").textContent = peers <= 1 ? t(lang, "onlineOne") : `${peers}${t(lang, "onlineMany")}`;
+
+  positionPlantTarget();
+}
+
+// positionPlantTarget 把透明命中区贴合到植物上：位置与大小都来自同一套投影。
+// 镜头移动时由 onCameraMove 单独调用，避免每帧重写面板文字。
+function positionPlantTarget() {
+  const hit = world.plantSurfacePoint(world.getSelected());
+  const target = $("plant-target");
+  target.hidden = !hit || hit.x < 30 || hit.x > innerWidth - 30 || hit.y < 90 || hit.y > innerHeight - 210;
+  if (target.hidden) return;
+  target.style.left = hit.x + "px";
+  target.style.top = hit.y + "px";
+  target.style.width = Math.max(64, Math.min(210, 95 * hit.s)) + "px";
+  target.style.height = Math.max(75, Math.min(230, 115 * hit.s)) + "px";
 }
 
 // updatePlantLabel 刷新画布上的植物标签（三行：提示 / 阶段 / 动作）。
@@ -329,7 +354,7 @@ function onMessage(e) {
       break;
     }
     case "cursor": {
-      // 别人的光标增量（世界坐标）：进有界插值缓冲；自己的回声跳过。
+      // 别人的光标增量（世界坐标 + 服务端算出的地表高度）：进有界插值缓冲；自己的回声跳过。
       if (e.id === state.you) break;
       const s = state.sessions.get(e.id);
       if (s) {
@@ -338,6 +363,7 @@ function onMessage(e) {
         appendPositionSample(s.buf, { t: now, x: e.wx, y: e.wy }, now);
         s.wx = e.wx; // 最后已知位置（世界坐标）
         s.wy = e.wy;
+        s.z = Number(e.z) || 0; // 地表高度：让别人的箭头贴着岛面
         if (e.island !== undefined) s.island = e.island;
       }
       break;
@@ -352,8 +378,7 @@ function onMessage(e) {
       }
       if (e.id !== state.you) recordEvent("island", { id: e.id, island: e.island });
       break;
-    }
-    case "pulse": {
+    }    case "pulse": {
       // 脉冲事件：eventId 去重后入效果队列。第一版不预播，点击方也走回声。
       if (!markSeen(seenPulses, e.eventId)) break;
       pulses.push({ wx: e.wx, wy: e.wy, bornAt: performance.now(), mine: e.id === state.you });
@@ -461,37 +486,24 @@ function tangentAt(buf, idx, key) {
   return (next[key] - prev[key]) / (next.t - prev.t);
 }
 
-// drawPointer 画一个指针形状（真实访客的光标）；isYou 用本地强调色。
-function drawPointer(ctx, x, y, color, label) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + 4, y + 11);
-  ctx.lineTo(x + 7, y + 6);
-  ctx.lineTo(x + 12, y + 5);
-  ctx.closePath();
-  ctx.stroke();
-  if (label) {
-    ctx.font = '10px "Segoe UI","Microsoft YaHei",sans-serif';
-    ctx.textAlign = "left";
-    ctx.fillStyle = color;
-    ctx.fillText(label, x + 14, y + 12);
-  }
-}
-
 // presenceOverlay 每帧把真实访客和脉冲画进世界（world.js 的渲染循环调用）。
-// 别人的指针在世界坐标上插值后用我自己的相机投影——两端相机不同也对齐。
+// 自己的指针就是系统光标（不遮、不重画）；这里只画别人的指针，位置在世界坐标上插值，
+// 再用我自己的相机投影——两端相机不同也指向同一处地表。
 function presenceOverlay(ctx, now, helpers) {
   const lang = getPrefs().lang;
   for (const [id, s] of state.sessions) {
-    const isYou = id === state.you;
-    // 断线后系统光标接管交互，不再重复绘制旧的本地箭头。
-    if (isYou && !connectionOpen()) continue;
-    const p = isYou ? { x: s.wx, y: s.wy } : samplePosition(s, now - RENDER_DELAY);
-    const sp = helpers.project(p.x, p.y);
-    if (!sp) continue;
-    // 出生/死亡动画的透明度
+    if (id === state.you) continue; // 自己的指针交给系统光标，避免两个箭头互相打架
+    const p = samplePosition(s, now - RENDER_DELAY);
+    const sp = helpers.project(p.x, p.y, s.z || 0);
+    if (!sp || sp.x < 0 || sp.x > helpers.W || sp.y < 0 || sp.y > helpers.H) continue;
+    // 平滑：远端包是离散的，用指数插值让指针走起来像有人真的在移动
+    s.shown = s.shown || { x: p.x, y: p.y, z: s.z || 0 };
+    s.shown.x += (p.x - s.shown.x) * 0.3;
+    s.shown.y += (p.y - s.shown.y) * 0.3;
+    s.shown.z += ((s.z || 0) - s.shown.z) * 0.3;
+    const q = helpers.project(s.shown.x, s.shown.y, s.shown.z);
+    if (!q) continue;
+
     let alpha = 1;
     if (s.deadAt) {
       const life = (now - s.deadAt) / 600;
@@ -501,9 +513,25 @@ function presenceOverlay(ctx, now, helpers) {
       }
       alpha = 1 - life;
     }
+    ctx.save();
     ctx.globalAlpha = alpha;
-    drawPointer(ctx, sp.x, sp.y, isYou ? paletteAccent() : "#79e6ff", isYou ? t(lang, "you") : id);
-    ctx.globalAlpha = 1;
+    ctx.translate(q.x, q.y);
+    ctx.strokeStyle = paletteFoam();
+    ctx.fillStyle = paletteBg();
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(5, 16);
+    ctx.lineTo(9, 10);
+    ctx.lineTo(16, 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = paletteFoam();
+    ctx.font = '11px "Segoe UI","Microsoft YaHei",sans-serif';
+    ctx.textAlign = "left";
+    ctx.fillText(`${t(lang, "guest")} ${id}`, 19, 18);
+    ctx.restore();
   }
 
   // 脉冲环：世界坐标投影到海面，600ms 生灭
@@ -518,7 +546,7 @@ function presenceOverlay(ctx, now, helpers) {
     ctx.globalAlpha = (1 - life) * 0.8;
     ctx.beginPath();
     ctx.arc(sp.x, sp.y, (6 + life * 46) * clampScale(sp.s), 0, Math.PI * 2);
-    ctx.strokeStyle = pulses[i].mine ? paletteAccent() : "#79e6ff";
+    ctx.strokeStyle = pulses[i].mine ? paletteAccent() : paletteFoam();
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.globalAlpha = 1;
@@ -533,6 +561,17 @@ function clampScale(s) {
 // paletteAccent 读取当前主题的强调色（脉冲与“你”的指针共用）。
 function paletteAccent() {
   return getComputedStyle(document.documentElement).getPropertyValue("--gold").trim() || "#d7b38c";
+}
+
+// paletteFoam 读取当前主题的浪沫色（别人的指针用它，和岛屿材质同一套颜色）。
+function paletteFoam() {
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--world-foam-rgb").trim();
+  return v ? `rgb(${v})` : "#9eccc3";
+}
+
+// paletteBg 读取当前主题的背景色（指针箭头的填充色，避免半透明箭头糊在画面上）。
+function paletteBg() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() || "#091c20";
 }
 
 // overlayActive 报告实时层是否还有活动：有存活脉冲或远端访客时需要继续出帧。
@@ -667,12 +706,16 @@ function showToast(text) {
 }
 
 // 光标上报：pointermove → 世界坐标记账，50ms 定时器 20Hz 发送。
+// 指针落在地表上时带地形高度（z），所以别人的箭头会贴着岛面，而不是浮在海平面上。
 // island 字段由客户端粗判（便于服务端日志对账），服务端会用同一坐标重新判定权威归属。
+// 自己的鼠标就是系统光标：画布不隐藏它，也不重画一个箭头跟在自己后面。
 const land = $("land");
+const plantHit = $("plant-hit");
 land.addEventListener("pointermove", (e) => {
-  const w = world.screenToWorld(e.clientX, e.clientY);
+  const w = world.screenToSurface(e.clientX, e.clientY);
   pending.x = w.x;
   pending.y = w.y;
+  pending.z = w.z;
   pending.island = islandAt(w.x, w.y);
   pending.dirty = true;
   const me = state.you && state.sessions.get(state.you);
@@ -681,6 +724,16 @@ land.addEventListener("pointermove", (e) => {
     me.wy = pending.y;
     me.island = pending.island;
   }
+});
+// 指针悬在植物上时，上报的是植物所在位置（含高度），和点它浇水是同一处
+plantHit.addEventListener("pointermove", () => {
+  const p = world.plantSurfacePoint();
+  if (!p) return;
+  pending.x = p.x;
+  pending.y = p.y;
+  pending.z = p.z;
+  pending.island = ISLANDS[world.getSelected()]?.id || "";
+  pending.dirty = true;
 });
 
 // islandAt 用与后端同一套椭圆判定粗算当前所在岛（只用于上报，不作为权威）。
@@ -751,6 +804,19 @@ $("approach").addEventListener("click", () => {
 });
 // 面板按钮与画布上的植物共用同一个照料动作
 $("water").addEventListener("click", waterPlant);
+$("plant-hit").addEventListener("click", waterPlant);
+// 悬停在植物上时，world.js 在土壤圈上画一圈提示，同时把指针位置上报为植物本身
+$("plant-hit").addEventListener("pointerenter", () => {
+  world.setPlantHover(true);
+  const p = world.plantSurfacePoint();
+  if (!p) return;
+  pending.x = p.x;
+  pending.y = p.y;
+  pending.z = p.z;
+  pending.island = ISLANDS[world.getSelected()]?.id || "";
+  pending.dirty = true;
+});
+$("plant-hit").addEventListener("pointerleave", () => world.setPlantHover(false));
 
 // 帮助对话框关闭交还焦点
 document.querySelectorAll("[data-close]").forEach((el) => {
@@ -774,6 +840,8 @@ world.initWorld(
     onPlantWater: waterPlant,
     // 植物标签需要按当前语言与阶段刷新
     onPlantLabel: (index) => updatePlantLabel(index),
+    // 悬停植物：命中区随投影跟随，需要立刻刷新位置
+    onPlantHover: () => updateCarePanel(),
     // 靠近/退回：切换左侧文案、面板与窄屏布局
     onNearChange: () => updateModeText(),
     // 空地点击 = 世界坐标脉冲（打招呼）；每次单独发，不走 20Hz 采样
@@ -781,13 +849,14 @@ world.initWorld(
       if (!connectionOpen()) return;
       ws.send(JSON.stringify({ type: "pulse", v: 2, clientEventId: `c${pulseSeq++}`, wx, wy }));
     },
-    // 相机移动：坐标读数节流到 180ms，不每帧写 DOM
+    // 相机移动：坐标读数与植物命中区节流到 180ms，不每帧写 DOM
     onCameraMove: (() => {
       let last = 0;
       return () => {
         const now = performance.now();
         if (now - last > 180) {
           updateReadout();
+          positionPlantTarget();
           last = now;
         }
       };

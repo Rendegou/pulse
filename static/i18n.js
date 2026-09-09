@@ -4,13 +4,13 @@
 // 数组型文案（helpCopy、careStage）由 app.js 逐项渲染，不拼 HTML。
 
 const zh = {
-  edition: "潮汐之间",
+  edition: "来过，便有回响",
   eyebrow: "海上手记",
   headline: "留一片绿意",
   description: "这是你在海上的一小块地方。\n有人来过，便多一点生机。",
   approach: "靠近这株植物",
   back: "回到海上",
-  nearby: "海的另一边",
+  nearby: "去海的另一边",
   offline: "离线预览",
   demo: "示例岛屿 · 真实访客",
   hint: "拖动漫游 · 滚轮靠近 · 点一座岛",
@@ -28,7 +28,7 @@ const zh = {
   lastNone: "还没有照料记录",
   lastWatered: "浇过水",
   you: "你",
-  guest: "来客",
+  guest: "访客",
   visit: "打开访客窗口",
   together: "两个人的水，落在同一株植物上。",
   thanks: "水落下了，叶片轻轻回应。",
@@ -83,7 +83,7 @@ const en = {
   description: "A small place of your own at sea.\nA little more alive after each visit.",
   approach: "Approach the plant",
   back: "Back to the sea",
-  nearby: "ACROSS THE WATER",
+  nearby: "Across the water",
   offline: "Offline preview",
   demo: "Sample islands · Real visitors",
   hint: "Drag to wander · Scroll to approach · Select an island",

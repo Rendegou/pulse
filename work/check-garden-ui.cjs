@@ -36,7 +36,10 @@ async function main() {
     assert.equal(boot.care.length, 3, '应收到三株植物的花园快照');
     assert.equal(await page.locator('#care').isVisible(), false, '远景不应显示照料面板');
     assert.equal(await page.locator('.island-label:visible').count() >= 1, true, '远景应显示岛标签');
-    ok('启动：三岛 / WebGL 海面 / 花园快照');
+    // 自己的指针就是系统光标：画布不能把 cursor 设成 none
+    const canvasCursor = await page.locator('#land').evaluate((el) => getComputedStyle(el).cursor);
+    assert.notEqual(canvasCursor, 'none', '画布不应隐藏系统光标');
+    ok('启动：三岛 / WebGL 海面 / 花园快照 / 系统光标可见');
 
     // 1b) 远景点植物不直接浇水：点它只会开始靠近，不会立刻打开照料面板
     const farPlant = await page.evaluate(() => window.PULSE_WORLD.plantScreen(0));
@@ -84,6 +87,14 @@ async function main() {
     await page.waitForFunction(() => window.PULSE_WORLD.snapshot().moving === false, null, { timeout: 12000 });
     assert.equal(await page.locator('#care').isVisible(), true, '靠近后应显示照料面板');
     assert.ok((await page.locator('#care-note').innerText()).length > 0, '面板应有阶段文案');
+    // 植物上方的透明命中区应贴合植物，并显示动作提示
+    const target = await page.locator('#plant-target').boundingBox();
+    const plantNow = await page.evaluate(() => window.PULSE_WORLD.plantScreen(0));
+    assert.ok(target, '植物命中区应可见');
+    assert.ok(Math.abs((target.x + target.width / 2) - plantNow.x) < 40, '命中区应贴在植物上');
+    assert.ok((await page.locator('#water-label').innerText()).length > 0, '按钮应有动作文案');
+    assert.ok((await page.locator('#presence').innerText()).length > 0, '应显示在线人数');
+    assert.ok((await page.locator('#trace').innerText()).length > 0, '应显示最近照料记录');
 
     const plant = await page.evaluate(() => window.PULSE_WORLD.plantScreen(0));
     assert.ok(plant && plant.x > 0 && plant.x < 1440, '植物应在屏幕内');

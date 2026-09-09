@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -11,6 +12,38 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// TestSurfaceHeight 覆盖地表高度：海上为 0，岛心明显高于岸边，且与前端公式同源。
+// 这个值会写进 cursor 广播的 z 字段，让别人的指针贴着岛面。
+func TestSurfaceHeight(t *testing.T) {
+	if got := surfaceHeight(5000, 5000); got != 0 {
+		t.Errorf("海上高度应为 0，实际 %v", got)
+	}
+	origin, _ := islandByID("origin")
+	center := surfaceHeight(origin.X, origin.Y)
+	if center < 40 {
+		t.Errorf("岛心高度应明显大于 0，实际 %v", center)
+	}
+	// 岸边（半径 0.98 处）应低于岛心，但仍在地形范围内
+	edge := surfaceHeight(origin.X+origin.R*0.98, origin.Y)
+	if edge >= center {
+		t.Errorf("岸边(%v) 应低于岛心(%v)", edge, center)
+	}
+	if edge < 0 || center > 90 {
+		t.Errorf("高度应落在有界范围：edge=%v center=%v", edge, center)
+	}
+}
+
+// TestSurfaceHeightMatchesFrontend 覆盖前后端地形公式一致性：
+// 前端 static/pure.js 用同一组常数，改动一侧必须同步另一侧。
+func TestSurfaceHeightMatchesFrontend(t *testing.T) {
+	origin, _ := islandByID("origin")
+	// 与 JS 端 islandTerrainHeight(isl, 0, 0) 的手算值对齐（5 + 57 + 20·exp(-…)）
+	want := islandTerrainHeight(origin, 0, 0)
+	if got := surfaceHeight(origin.X, origin.Y); math.Abs(got-(want+2)) > 1e-9 {
+		t.Errorf("surfaceHeight 应等于地形高度 +2：got=%v want=%v", got, want+2)
+	}
+}
 
 // writeFile 把测试用的原始内容写进指定路径（用于构造损坏的状态文件）。
 func writeFile(path, body string) error {

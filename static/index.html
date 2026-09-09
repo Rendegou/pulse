@@ -49,15 +49,24 @@
 
 <nav id="nearby" aria-label="nearby"><h2 id="nearby-title">海的另一边</h2></nav>
 
-<!-- 照料面板：靠近后出现，画布上的植物与这里的按钮是同一个动作 -->
-<section id="care" hidden>
+<!-- 照料面板：靠近后出现在画面下方中央；画布上的植物是同一个动作的入口 -->
+<section id="care" hidden aria-label="照料植物">
   <p id="care-note" aria-live="polite"></p>
   <div class="care-actions">
-    <button id="water" class="primary"></button>
+    <button id="water">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C10 7 5 11 5 15a7 7 0 0 0 14 0c0-4-5-8-7-12Z"/></svg>
+      <span id="water-label"></span>
+    </button>
     <a id="visit" href="/?visitor=1" target="_blank" rel="noopener"></a>
   </div>
   <p id="care-detail"></p>
 </section>
+
+<!-- 植物上方的透明命中区：跟随投影缩放，悬停显示动作提示 -->
+<div id="plant-target"><button id="plant-hit" aria-label="为植物浇水"></button><span id="plant-caption"></span></div>
+
+<p id="presence" role="status"></p>
+<p id="trace"></p>
 
 <p id="hint"></p>
 <div id="toast" role="status" aria-live="polite"></div>
