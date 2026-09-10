@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>PULSE · 潮汐之间</title>
+<script>
+// 首屏防闪：绘制前读本地偏好设置 data-theme（与 preferences.js 同规则的最小副本）。
+(function () {
+  try {
+    var t = localStorage.getItem("pulse.theme") || "system";
+    var dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    var l = localStorage.getItem("pulse.lang");
+    if (l) document.documentElement.lang = l;
+  } catch (e) { /* 存储不可用时跟随默认 */ }
+})();
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

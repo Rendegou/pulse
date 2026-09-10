@@ -2,7 +2,7 @@
 // 验收口径来自课程卡：1000 条样本后 ≤32 条；停止后位置保留（由调用方配合）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendPositionSample } from "../static/pure.js";
+import { appendPositionSample } from "../frontend/src/engine/pure.js";
 
 test("按时间升序追加", () => {
   const buf = [];

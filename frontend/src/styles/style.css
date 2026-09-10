@@ -241,6 +241,8 @@ dialog .close { position: absolute; top: 14px; right: 17px; font: 24px/1 sans-se
   #trace { top: auto; bottom: 260px; left: 24px; max-width: 75vw; font-size: 10px; }
   #water { padding: 11px 19px; }
   body.near #nearby { display: none; }
+  /* 近景已有照料说明，窄屏不叠加同一位置的海上提示。 */
+  body.near #hint { display: none; }
   body.near #description { display: block; }
   body.near #headline { font-size: 25px; }
   body.near #approach { margin-top: 5px; }

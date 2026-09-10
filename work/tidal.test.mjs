@@ -1,6 +1,6 @@
 // 潮汐群岛投影与岛屿几何的行为测试：node work/tidal.test.mjs
 // 覆盖三件事：投影互逆（拖动/锚定/指针的基础）、高度确实放大、
-// 岛参数与后端 main.go 完全一致（前后端几何不能错位）。
+// 岛参数与后端 islands.go 完全一致（前后端几何不能错位）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -12,8 +12,8 @@ import {
   islandTerrainHeight,
   islandContains,
   resolveIsland,
-} from "../static/pure.js";
-import { ISLANDS, buildIslandGeometry, islandIndex } from "../static/islands.js";
+} from "../frontend/src/engine/pure.js";
+import { ISLANDS, buildIslandGeometry, islandIndex } from "../frontend/src/engine/islands.js";
 
 // view 是一组固定的镜头参数：1440×900、焦距由窗口推导（与 world.js 同规则）。
 const view = { cx: 0, cy: 0, d: 1150, W: 1440, H: 900, F: Math.min(900 * 1.1, 1440 * 1.3) };
@@ -75,17 +75,17 @@ test("pointInQuad：四边形内外判定", () => {
   assert.equal(pointInQuad(-1, 10, quad), false);
 });
 
-test("岛参数与后端 main.go 的 Islands() 完全一致（前后端几何不能错位）", () => {
+test("岛参数与后端 islands.go 的 Islands() 完全一致（前后端几何不能错位）", () => {
   // 按数值比对而不是比字符串：Go 写 0.70、JS 写 0.7 是同一个数。
   // 名称由后端维护，这里只比几何参数，避免中英文名称互相绑定。
-  const source = fs.readFileSync(new URL("../main.go", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../islands.go", import.meta.url), "utf8");
   const keys = ["X", "Y", "R", "SY", "Rot", "Seed"];
   for (const isl of ISLANDS) {
     const row = new RegExp(`\\{ID:\\s*"${isl.id}",[^}]*\\}`).exec(source);
-    assert.ok(row, `main.go 应定义岛屿 ${isl.id}`);
+    assert.ok(row, `islands.go 应定义岛屿 ${isl.id}`);
     const values = keys.map((k) => {
       const m = new RegExp(`${k}:\\s*(-?[\\d.]+)`).exec(row[0]);
-      assert.ok(m, `main.go 的 ${isl.id} 应包含字段 ${k}`);
+      assert.ok(m, `islands.go 的 ${isl.id} 应包含字段 ${k}`);
       return Number(m[1]);
     });
     const expected = [isl.x, isl.y, isl.r, isl.sy, isl.rot, isl.seed];

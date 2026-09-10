@@ -1,5 +1,7 @@
 # PULSE 手写课程卡
 
+> 2026-09-10 入口变更：旧课程保留作知识索引；static/pure.js 迁到 frontend/src/engine/pure.js，插值迁到 realtime/interpolation.js，读写泵迁到 websocket.go。不要创建旧候选文件；本轮只做 [16](16-frontend-foundation.md) 的请求关联练习。
+
 更新：2026-09-07。本文件保留为概念与反例课程库；执行顺序以 [新路线](07-ai-assisted-roadmap.md) 为准。每轮只为用户选一个关键练习，AI 可完成整个功能包，不逐课通关。L1–L3 已有实现，下面的历史题目用于定点补练，不要求重做。L4 归入 A；L5/L6 必要部分归入 B；L7–L10 按产品需要查阅。
 
 ## L0 画出一次真实调用链

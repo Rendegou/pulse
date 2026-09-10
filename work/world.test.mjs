@@ -2,7 +2,7 @@
 // 投影已改为潮汐群岛透视（pure.js 的 projectCalc），这里锁定可见范围内的可逆性。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectCalc, unprojectCalc } from "../static/pure.js";
+import { projectCalc, unprojectCalc } from "../frontend/src/engine/pure.js";
 
 // view 是一组固定的镜头参数：1440×900、远景距离，焦距由窗口推导（与 world.js 同规则）。
 const view = { cx: 1000, cy: -500, d: 1150, W: 1440, H: 900, F: Math.min(900 * 1.1, 1440 * 1.3) };

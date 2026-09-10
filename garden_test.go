@@ -35,7 +35,7 @@ func TestSurfaceHeight(t *testing.T) {
 }
 
 // TestSurfaceHeightMatchesFrontend 覆盖前后端地形公式一致性：
-// 前端 static/pure.js 用同一组常数，改动一侧必须同步另一侧。
+// 前端 frontend/src/engine/pure.js 用同一组常数，改动一侧必须同步另一侧。
 func TestSurfaceHeightMatchesFrontend(t *testing.T) {
 	origin, _ := islandByID("origin")
 	// 与 JS 端 islandTerrainHeight(isl, 0, 0) 的手算值对齐（5 + 57 + 20·exp(-…)）
@@ -279,8 +279,8 @@ func TestLoadGardenStateRejectsBadShape(t *testing.T) {
 // TestWaterMessageDedupAndCooldown 是真实 WS 集成测试：
 // 同一条 water 重发只生效一次；冷却期内的新事件被忽略；非法事件整条丢弃。
 func TestWaterMessageDedupAndCooldown(t *testing.T) {
-	_, path := newTestGarden(t)
-	hub := NewHub()
+	garden, path := newTestGarden(t)
+	hub := NewHub(garden)
 	srv := newWSTestServer(t, hub)
 	defer srv.Close()
 

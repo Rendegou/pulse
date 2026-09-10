@@ -2,7 +2,7 @@
 // 所有预期值都是先手算再断言，不从实现倒推。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizePointer } from "../static/pure.js";
+import { normalizePointer } from "../frontend/src/engine/pure.js";
 
 const rect = { left: 100, top: 50, width: 800, height: 400 };
 

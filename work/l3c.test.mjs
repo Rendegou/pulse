@@ -1,7 +1,7 @@
 // canSend 的行为测试：node --test work/l3c.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canSend, SEND_BUDGET_BYTES } from "../static/pure.js";
+import { canSend, SEND_BUDGET_BYTES } from "../frontend/src/engine/pure.js";
 
 test("有新坐标且连接健康 → 发", () => {
   assert.equal(canSend(true, true, 0), true);

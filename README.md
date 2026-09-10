@@ -1,42 +1,51 @@
 # PULSE
 
-把真实 WebSocket 连接、光标移动和服务端运行指标画在同一片粒子海面上的 Go + JavaScript 项目，也是一个由你亲手推进的实时应用练习项目。
+可以漫游、靠近和共同照料植物的粒子海面。Vue 3 管理界面，独立 Canvas/WebGL 引擎绘制世界，Go/WebSocket 同步真实连接与权威植物状态。
 
-每个光标表示一条真实连接；两个标签页是两条连接，不代表两个经过认证的人。服务端暂存在线状态与所在岛，刷新或重连会重新分配身份。岛屿与文章是标注清楚的示例内容。
+当前三座岛是示例内容，连接编号不是稳定用户；个人岛、所有权与真实邀请尚未实现。
 
-## 从哪里继续
+## 开始开发
 
-先打开 [当前方向（自己的小世界）](docs/14-personal-worlds-direction.md) 和 [当前进度](docs/05-progress-and-validation.md)。视觉基准是 [潮汐群岛概念稿](outputs/pulse-tidal-islands.html)，已迁入正式前端；下一步建议是确定“朋友到岛上后的第一个共同动作”。
-
-## 本地运行
-
-安装与 `go.mod` 相容的 Go 工具链；当前声明为 Go 1.25。Node.js 用于 JavaScript 语法检查和已有纯函数测试，前端没有 npm 构建步骤。
+使用 Go 1.25、Node 22.12+；本轮实际验证 Node 22.19.0。首次安装依赖：
 
 ```powershell
-Set-Location 'D:\VenerableP\pulse'
+npm ci
+```
+
+两个终端分别运行：
+
+```powershell
 go run .
 ```
 
-浏览器打开 `http://127.0.0.1:8090`，再开第二个标签页做对照。静态文件通过 `go:embed` 编译进进程，改 JS/HTML 后需要重启 Go 进程，再刷新页面。
-
 ```powershell
-$env:GOCACHE = Join-Path $env:TEMP 'pulse-go-cache'
-go vet ./...
-go test ./... -count=1
-go test -race ./... -count=1   # 需要 CGO 与 C 编译器；没有就记录真实报错，不要记成通过
-node --check static/app.js
-node --check static/world.js
-node --check static/islands.js
-node --check static/pure.js
-node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs work/world.test.mjs work/tidal.test.mjs
-node work/check-garden-ui.cjs http://127.0.0.1:8090   # 需要 go run . 正在运行
-git diff --check
+npm run dev
 ```
 
-`main_test.go` 与 `garden_test.go` 有 Go 行为测试：`validatePulse`/`validateCursor` 的字段边界、令牌桶、权威岛判定、慢消费者回收与 presence 广播两条真实 WebSocket 集成用例，以及花园的落盘恢复、阶段上限、共同照料窗口、浇水去重与冷却。测试通过只覆盖这些路径，不等于浏览器端和部署环境已验证。具体检查层级见 [进度与验证](docs/05-progress-and-validation.md)。
+打开 Vite 打印的地址。前端源码在 frontend/src，支持热更新；Go 默认监听 127.0.0.1:8090，Vite 同源代理 WebSocket/API。
 
-## 协作方式
+PULSE_ADDR 可覆盖 Go 监听地址；PULSE_BACKEND 可覆盖 Vite 代理目标。PULSE_GARDEN_STATE 指定花园数据路径，验收时使用独立文件。
 
-AI 完成当前功能包的常规实现、接线、测试和文档；你每轮练一个核心函数或反例测试，并解释关键调用链和失败边界。说“提示”时仍采用分级提示；说“完整实现”时可直接由 AI 完成，随后用一个小改动检查理解。每个函数或方法都写中文注释，说明用途、契约和必要的副作用。
+## 检查正式构建
 
-项目已有推送 `main` 后部署的工作流。本地学习和提交不等于发布；推送前要知道这会触发部署。
+```powershell
+npm test
+npm run build
+go test ./... -count=1
+go vet ./...
+go build -o .tools/pulse.exe .
+./.tools/pulse.exe
+```
+
+构建生成 static/dist，随后由 Go 内嵌进二进制；产物不提交、不手改。改前端后必须重新构建并重启 Go，或使用 Vite 开发服务。未构建时 Go 首页返回明确 503 提示，业务 API 仍可启动。
+
+生产仍只运行 Go 二进制，Node 仅参与开发与 CI 构建。推送 main 会自动部署，本轮未提交、推送或部署。
+
+## 文档与协作
+
+- [架构、调用链、运行方式与学习练习](docs/16-frontend-foundation.md)
+- [当前功能路线与其他 agent 提示词](docs/07-ai-assisted-roadmap.md)
+- [进度与验证证据](docs/05-progress-and-validation.md)
+- [全部文档入口](docs/README.md)
+
+AI 完成功能包，你每轮练一个核心边界；实现、验证与独立理解分别记录。保留已有中文函数注释和手写成果，不以引入框架替代产品功能。

@@ -7,3 +7,4 @@ work/garden-*-state.json
 work/garden-*-state.json.tmp
 work/garden-inline-check.js
 pulse-garden-state.json
+node_modules/

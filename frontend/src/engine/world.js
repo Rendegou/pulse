@@ -6,10 +6,20 @@
 // - air：贴岸浪沫、漂尘、植物与实时层（真实访客指针、点击脉冲、浇水效果），每帧绘制。
 //
 // 数据边界：岛的参数来自 islands.js（与后端一致），植物生长阶段由服务端权威给出
-// （app.js 通过 setGarden 注入）；本模块不碰网络，真实访客与脉冲由 setOverlay 注入。
+// （runtime.js 通过 setGarden 注入）；本模块不碰网络，真实访客与脉冲由 setOverlay 注入。
 
 import { projectCalc, unprojectCalc, clamp, smoothstep, tidalTilt, pointInQuad } from "./pure.js";
 import { ISLANDS, buildIslandGeometry, islandPoint, islandIndex, islandTerrainHeight } from "./islands.js";
+
+// createWorld 创建独立引擎实例；由 Vue 挂载时初始化，卸载时 dispose。粒子与相机不进入响应式状态。
+export function createWorld() {
+let disposed = false;
+const cleanups = [];
+// listen 为当前引擎登记监听器，销毁时按原参数移除，防止热更新重复手势。
+function listen(node, type, callback, options) {
+  node.addEventListener(type, callback, options);
+  cleanups.push(() => node.removeEventListener(type, callback, options));
+}
 
 // ---------- 可调审美参数 ----------
 
@@ -72,10 +82,10 @@ const effects = [];           // 浇水效果（水滴与土壤光点），最�
 let seaCanvas, landCanvas, airCanvas, sc, lc, ac, gl;
 let W = 0, H = 0, F = 1, dpr = 1;
 let waterProgram = null, waterUniforms = null, waterCount = 0, waterBuffer = null;
-let palette = null;              // 由 app.js 注入的主题调色板
-let overlay = null;              // app.js 的实时层回调 (ctx, now, helpers)
+let palette = null;              // 由 runtime.js 注入的主题调色板
+let overlay = null;              // runtime.js 的实时层回调 (ctx, now, helpers)
 let labelHost = null;            // 标签容器 DOM
-let handlers = {};               // app.js 注入的回调
+let handlers = {};               // runtime.js 注入的回调
 let motionReduced = false;
 let gesture = new Map();
 let zoomAnchor = null;
@@ -84,11 +94,11 @@ let dragMoved = false, down = null;
 // ---------- 对外装配 ----------
 
 // initWorld 绑定三块画布、构建岛屿几何并启动渲染循环。
-// 参数：{ sea, land, air, labelHost } 是 DOM 节点；callbacks 由 app.js 提供：
+// 参数：{ sea, land, air, labelHost } 是 DOM 节点；callbacks 由 runtime.js 提供：
 // { onIslandSelect(index), onPlantWater(), onPlantLabel(index), onGroundPulse(wx, wy),
 //   onCameraMove(camera), onNearChange(near), isReading(), overlayActive(),
 //   isModalOpen(), getReservedRect() }
-export function initWorld(nodes, callbacks = {}) {
+function initWorld(nodes, callbacks = {}) {
   seaCanvas = nodes.sea;
   landCanvas = nodes.land;
   airCanvas = nodes.air;
@@ -99,7 +109,7 @@ export function initWorld(nodes, callbacks = {}) {
   lc = landCanvas.getContext("2d");
   ac = airCanvas.getContext("2d");
   motionReduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", (e) => {
+  listen(matchMedia("(prefers-reduced-motion: reduce)"), "change", (e) => {
     motionReduced = e.matches;
     state.dirty = true;
     wake();
@@ -111,9 +121,9 @@ export function initWorld(nodes, callbacks = {}) {
 
   if (innerWidth < 580) camera.d = target.d = TUNE.dOverviewMobile;
   resize();
-  window.addEventListener("resize", resize);
+  listen(window, "resize", resize);
   bindGestures();
-  document.addEventListener("visibilitychange", () => {
+  listen(document, "visibilitychange", () => {
     if (document.hidden) {
       cancelAnimationFrame(state.raf);
       state.raf = 0;
@@ -126,10 +136,10 @@ export function initWorld(nodes, callbacks = {}) {
   wake();
 }
 
-// setPalette 注入主题调色板（切换主题时由 app.js 再调一次）。
+// setPalette 注入主题调色板（切换主题时由 runtime.js 再调一次）。
 // p 需要包含 bg/sea/foam/shore/land/contour/solid/paper/ink/gold/shadow；
 // sea/foam/shore/land/contour 是 [r,g,b] 数组，其余是 CSS 颜色串。
-export function setPalette(p) {
+function setPalette(p) {
   palette = p;
   state.dirty = true;
   state.lastSea = 0;
@@ -138,9 +148,9 @@ export function setPalette(p) {
 
 // setGarden 注入服务端权威的花园快照（welcome 与每次 plant 广播都会调一次）。
 // 只接受形状正确的快照：植物数量与本地岛数一致、care 在 0..3；
-// 版本倒退时不覆盖（重连由 app.js 传 reset=true 显式重设）。
+// 版本倒退时不覆盖（重连由 runtime.js 传 reset=true 显式重设）。
 // 生长动画在这里被唤醒，但阶段值始终来自参数，不在这里自增。
-export function setGarden(next, reset = false) {
+function setGarden(next, reset = false) {
   if (!next || !Array.isArray(next.plants) || next.plants.length !== state.islands.length) return;
   if (!reset && Number.isInteger(garden.version) && next.version < garden.version) return;
   garden = {
@@ -160,7 +170,7 @@ export function setGarden(next, reset = false) {
 
 // addWaterEffect 记录一次浇水效果（水滴落下 → 土壤光点扩散）。
 // together 表示这次照料与另一个连接落在同一株植物上，颜色更暖。
-export function addWaterEffect(islandID, together) {
+function addWaterEffect(islandID, together) {
   const index = islandIndex(islandID);
   if (index < 0) return;
   effects.push({ island: index, bornAt: performance.now(), together: !!together });
@@ -171,13 +181,13 @@ export function addWaterEffect(islandID, together) {
 
 // setOverlay 注册每帧的实时层绘制（真实访客指针、点击脉冲）。
 // fn(ctx, now, helpers)：helpers 提供 project（世界→屏幕，可能返回 null）与 W/H。
-export function setOverlay(fn) {
+function setOverlay(fn) {
   overlay = fn;
   wake();
 }
 
 // getStats 返回性能与诊断统计（状态抽屉与浏览器验收使用）。
-export function getStats() {
+function getStats() {
   return {
     frameMs: state.frameMs,
     scenePaints: state.scenePaints,
@@ -190,18 +200,18 @@ export function getStats() {
 }
 
 // getCamera 返回镜头快照（只读拷贝）。zoom 是相对远景的放大倍数，仅用于读数显示。
-export function getCamera() {
+function getCamera() {
   return { x: camera.x, y: camera.y, d: camera.d, zoom: TUNE.dOverview / camera.d };
 }
 
 // screenToWorld 把屏幕点反解为海平面世界坐标（拖动锚定与光标上报共用）。
-export function screenToWorld(x, y) {
+function screenToWorld(x, y) {
   return unprojectCalc(view(), x, y);
 }
 
 // screenToSurface 把屏幕点反解为“地表”世界坐标：指针落在岛上时带上地形高度，
 // 落在海上就是海平面。远端相机不同也能指向同一处地表——这是别人的指针贴地的前提。
-export function screenToSurface(x, y) {
+function screenToSurface(x, y) {
   const p = unprojectCalc(view(), x, y);
   const heightAt = (wx, wy) => {
     for (const isl of state.islands) {
@@ -230,25 +240,25 @@ export function screenToSurface(x, y) {
   return { x: p.x, y: p.y, z: heightAt(p.x, p.y) };
 }
 
-// plantSurfacePoint 返回植物锚点在世界中的位置与高度（app.js 的透明命中区用）。
-export function plantSurfacePoint(index = state.selected) {
+// plantSurfacePoint 返回植物锚点在世界中的位置与高度（runtime.js 的透明命中区用）。
+function plantSurfacePoint(index = state.selected) {
   if (!Number.isInteger(index) || index < 0 || index >= state.islands.length) return null;
   const p = plantProject(index, 0, 0, TUNE.plant.stem * 0.75);
   return p ? { x: p.x, y: p.y, s: p.s } : null;
 }
 
 // getSelected 返回当前选中的岛索引。
-export function getSelected() {
+function getSelected() {
   return state.selected;
 }
 
-// getNearState 返回是否处于靠近状态（app.js 用它决定提示文案与动作语义）。
-export function getNearState() {
+// getNearState 返回是否处于靠近状态（runtime.js 用它决定提示文案与动作语义）。
+function getNearState() {
   return state.near;
 }
 
 // setPlantHover 设置植物悬停态：在土壤圈上画一圈提示，并让面板跟随刷新。
-export function setPlantHover(on) {
+function setPlantHover(on) {
   if (state.hover === !!on) return;
   state.hover = !!on;
   state.lastSea = 0;
@@ -256,16 +266,16 @@ export function setPlantHover(on) {
   wake();
 }
 
-// getGarden 返回花园快照的拷贝（app.js 用来显示最近照料者，不直接改内部状态）。
-export function getGarden() {
+// getGarden 返回花园快照的拷贝（runtime.js 用来显示最近照料者，不直接改内部状态）。
+function getGarden() {
   return {
     version: garden.version,
     plants: garden.plants.map((p) => ({ care: p.care, last: p.last ? { ...p.last } : null })),
   };
 }
 
-// setPlantLabelText 写入植物标签的三行文案（由 app.js 按当前语言与生长阶段给出）。
-export function setPlantLabelText(text) {
+// setPlantLabelText 写入植物标签的三行文案（由 runtime.js 按当前语言与生长阶段给出）。
+function setPlantLabelText(text) {
   if (!state.plantLabel) return;
   state.plantLabel.querySelector(".meta").textContent = text.meta || "";
   state.plantLabel.querySelector(".name").textContent = text.name || "";
@@ -273,15 +283,15 @@ export function setPlantLabelText(text) {
 }
 
 // wake 请求下一帧；只保持一个动画请求，页面隐藏时不启动后台帧。
-export function wake() {
-  if (!state.raf && !document.hidden) state.raf = requestAnimationFrame(frame);
+function wake() {
+  if (!disposed && !state.raf && !document.hidden) state.raf = requestAnimationFrame(frame);
 }
 
 // ---------- 相机动作 ----------
 
 // selectIsland 选中一座岛（不移动镜头）；越界索引被忽略。
 // 选中立即刷新标签与附近列表，随后由调用方决定是否 approach。
-export function selectIsland(index) {
+function selectIsland(index) {
   if (!Number.isInteger(index) || index < 0 || index >= state.islands.length) return;
   state.selected = index;
   state.dirty = true;
@@ -292,7 +302,7 @@ export function selectIsland(index) {
 
 // approach 连续靠近选中的岛：镜头对准岛心并推进到落位距离。
 // 不切换场景、不重建几何；中途拖动或滚轮会立刻接管。
-export function approach(index = state.selected) {
+function approach(index = state.selected) {
   if (!Number.isInteger(index) || index < 0 || index >= state.islands.length) return;
   const isl = state.islands[index];
   state.selected = index;
@@ -306,7 +316,7 @@ export function approach(index = state.selected) {
 }
 
 // returnAbove 从近景退回远景；同样只改目标，可被任何输入打断。
-export function returnAbove() {
+function returnAbove() {
   const isl = state.islands[state.selected];
   target.x = isl.x;
   target.y = isl.y - 60;
@@ -317,7 +327,7 @@ export function returnAbove() {
 
 // flyTo 把镜头送到指定世界坐标与距离（地址旅行、归处按钮使用）。
 // to = {x, y, d}；再次调用替换旧目标，没有排队。
-export function flyTo(to) {
+function flyTo(to) {
   target.x = to.x;
   target.y = to.y;
   if (Number.isFinite(to.d)) target.d = clamp(to.d, TUNE.dMin, TUNE.dMax);
@@ -327,7 +337,7 @@ export function flyTo(to) {
 
 // zoomAt 保持指针下的海面点不动进行缩放；factor > 1 表示拉远。
 // 返回 false 表示已经到边界（镜头距离没有变化）。
-export function zoomAt(factor, x = W * 0.57, y = H * 0.55) {
+function zoomAt(factor, x = W * 0.57, y = H * 0.55) {
   const before = target.d;
   target.d = clamp(target.d * factor, TUNE.dMin, TUNE.dMax);
   if (target.d === before && camera.d === before) return false;
@@ -454,7 +464,7 @@ function isReading() {
   return handlers.isReading ? handlers.isReading() : false;
 }
 
-// overlayActive 报告实时层是否有活动（脉冲存活或有人移动）；由 app.js 决定。
+// overlayActive 报告实时层是否有活动（脉冲存活或有人移动）；由 runtime.js 决定。
 function overlayActive() {
   return handlers.overlayActive ? handlers.overlayActive() : false;
 }
@@ -931,7 +941,7 @@ function buildLabels() {
     b.className = "island-label";
     b.innerHTML = '<span class="name"></span><span class="sub"></span>';
     // 点标签 = 选中并靠近这座岛；与附近列表是等价入口。
-    b.addEventListener("click", () => { selectIsland(i); approach(i); });
+    listen(b, "click", () => { selectIsland(i); approach(i); });
     labelHost.appendChild(b);
     state.labels.push(b);
   });
@@ -939,17 +949,17 @@ function buildLabels() {
   p.className = "plant-label";
   p.innerHTML = '<span class="meta"></span><span class="name"></span><span class="more"></span>';
   // 点植物标签 = 照料这株植物（等价于点画布上的植物）。
-  p.addEventListener("click", () => handlers.onPlantWater && handlers.onPlantWater());
+  listen(p, "click", () => handlers.onPlantWater && handlers.onPlantWater());
   labelHost.appendChild(p);
   state.plantLabel = p;
 }
 
-// updatePlantLabel 让 app.js 为当前选中岛的植物刷新标签文本。
+// updatePlantLabel 让 runtime.js 为当前选中岛的植物刷新标签文本。
 function updatePlantLabel() {
   handlers.onPlantLabel && handlers.onPlantLabel(state.selected);
 }
 
-// updateNearState 在跨越距离阈值时通知 app.js（文案与动作语义随之切换）。
+// updateNearState 在跨越距离阈值时通知 runtime.js（文案与动作语义随之切换）。
 function updateNearState() {
   const next = camera.d < TUNE.nearThreshold;
   if (next === state.near) return;
@@ -996,7 +1006,7 @@ function positionLabels() {
 // 指针捕获保证拖出画布后仍能收到释放事件；取消手势不产生点击副作用。
 function bindGestures() {
   const surface = landCanvas;
-  surface.addEventListener("pointerdown", (e) => {
+  listen(surface, "pointerdown", (e) => {
     if (e.button !== 0) return;
     stopCamera();
     gesture.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1005,7 +1015,7 @@ function bindGestures() {
     surface.setPointerCapture(e.pointerId);
     surface.classList.add("dragging");
   });
-  surface.addEventListener("pointermove", (e) => {
+  listen(surface, "pointermove", (e) => {
     if (!gesture.has(e.pointerId)) {
       const next = pickPlant(e.clientX, e.clientY);
       if (next !== state.hover) { state.hover = next; state.lastSea = 0; wake(); }
@@ -1042,7 +1052,7 @@ function bindGestures() {
       surface.classList.remove("dragging");
       if (!dragMoved && !cancelled) {
         if (pickPlant(e.clientX, e.clientY)) {
-          // 点植物：与按钮共用同一个照料动作；远景下由 app.js 决定先靠近
+          // 点植物：与按钮共用同一个照料动作；远景下由 runtime.js 决定先靠近
           handlers.onPlantWater && handlers.onPlantWater();
         } else {
           const island = pickIsland(e.clientX, e.clientY);
@@ -1057,16 +1067,17 @@ function bindGestures() {
       down = null;
     } else dragMoved = true;
   };
-  surface.addEventListener("pointerup", (e) => finishPointer(e, false));
-  surface.addEventListener("pointercancel", (e) => finishPointer(e, true));
-  surface.addEventListener("wheel", (e) => {
+  listen(surface, "pointerup", (e) => finishPointer(e, false));
+  listen(surface, "pointercancel", (e) => finishPointer(e, true));
+  listen(surface, "wheel", (e) => {
     e.preventDefault();
     const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? H : 1);
     zoomAt(Math.exp(clamp(delta, -180, 180) * 0.0014), e.clientX, e.clientY);
   }, { passive: false });
   // 键盘：方向键平移、+/− 缩放、Esc 回到海上（方向与拖动地表一致）
-  window.addEventListener("keydown", (e) => {
+  listen(window, "keydown", (e) => {
     if (handlers.isModalOpen && handlers.isModalOpen()) return;
+    if (e.target?.closest?.("input, textarea, select, [contenteditable=true]")) return;
     if (e.key === "Escape") { returnAbove(); return; }
     if (e.key === "+" || e.key === "=") { zoomAt(0.8); e.preventDefault(); }
     else if (e.key === "-") { zoomAt(1.25); e.preventDefault(); }
@@ -1084,7 +1095,7 @@ function bindGestures() {
       wake();
     }
   });
-  window.addEventListener("blur", () => {
+  listen(window, "blur", () => {
     gesture.clear();
     surface.classList.remove("dragging");
   });
@@ -1159,8 +1170,8 @@ function fractHash(x, y, s) {
 }
 
 // 暴露只读诊断快照：供控制台与浏览器验收核对真实镜头、渲染计数与花园状态。
-Object.defineProperty(window, "PULSE_WORLD", {
-  get() {
+// diagnostics 只返回可观察快照，不向组件泄露引擎内部可变状态。
+function diagnostics() {
     return {
       camera: getCamera(),
       stats: getStats(),
@@ -1191,5 +1202,36 @@ Object.defineProperty(window, "PULSE_WORLD", {
         effects: effects.length,
       }),
     };
-  },
-});
+
+}
+
+// setIslandLabels 更新引擎拥有的投影标签；Vue 只管理空容器，不重复管理其子节点。
+function setIslandLabels(names, subtitle) {
+  state.labels.forEach((el, i) => {
+    el.querySelector('.name').textContent = names[i] || ISLANDS[i].id;
+    el.querySelector('.sub').textContent = subtitle;
+  });
+}
+// dispose 停止 RAF、解除监听并释放 GPU 资源；可重复调用，销毁后不可再次初始化。
+function dispose() {
+  if (disposed) return;
+  disposed = true;
+  cancelAnimationFrame(state.raf);
+  state.raf = 0;
+  for (const cleanup of cleanups.splice(0)) cleanup();
+  for (const id of gesture.keys()) {
+    if (landCanvas?.hasPointerCapture(id)) landCanvas.releasePointerCapture(id);
+  }
+  gesture.clear();
+  if (gl) {
+    if (waterProgram) gl.deleteProgram(waterProgram);
+    if (waterBuffer) gl.deleteBuffer(waterBuffer);
+  }
+  labelHost?.replaceChildren();
+  overlay = null;
+  handlers = {};
+  state.islands = [];
+  state.labels = [];
+}
+return { initWorld, setPalette, setGarden, addWaterEffect, setOverlay, getStats, getCamera, screenToWorld, screenToSurface, plantSurfacePoint, getSelected, getNearState, setPlantHover, getGarden, setPlantLabelText, wake, selectIsland, approach, returnAbove, flyTo, zoomAt, setIslandLabels, diagnostics, dispose };
+}

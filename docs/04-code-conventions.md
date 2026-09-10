@@ -2,34 +2,15 @@
 
 规范的目的：让你读得出状态属于谁、函数做出什么承诺、错误如何返回，以及怎样验证结果。一个统一的注释 Skill 约束所有方法，不是每个方法单独建立一个 Skill。
 
-## 1. 当前目录先保持可通读
+## 1. 当前目录与所有权
 
-```text
-main.go          装配、HTTP、Hub、Session、协议、读写泵（当前阶段）
-static/
-  index.html     页面结构与稳定的元素 ID
-  app.js         连接、输入、状态、插值、绘制（ES module）
-  pure.js        无 DOM/时钟依赖的计算与缓冲操作（已存在）
-  style.css      视觉样式
-work/            已有练习、行为测试与历史实验
-docs/            方案、课程、验证和原型参考
-deploy/          已入库的部署配置
-.agents/skills/  注释规范与陪练流程
-```
+以 [16 前后端地基](16-frontend-foundation.md) 为准。前端 Vue 3 + Vite，源码唯一入口 frontend/src；后端同一 package main 按职责拆分。static/dist 是构建输出，禁止手改。
 
-现在不为了凑架构改成微服务，不引入 ORM，也不先迁到 React/TypeScript。学到一个实际职责后再拆一个文件。
+## 2. 按真实职责拆分
 
-## 2. 按课程逐步拆分
+组件负责界面，runtime 装配协议，watering 管动作，connection 管连接，engine 管高频场景。不要在 Vue 响应式对象里塞粒子或 WebSocket，不在模块顶层启动无清理的定时器。
 
-以下是旧课程的候选职责，不是必须按课创建的文件清单。pure.js 已因可测试边界拆出，HTML 已为 ES module；app.js 的插值仍操作 s.playing。后续按实际职责和测试需要拆分，不等待用户完成整门课：
-
-- L2：`static/interpolation.mjs` 与同目录测试，只放不依赖 DOM 的纯函数。
-- L3/L4：把事件解析与状态更新拆成 `static/state.mjs`；`app.js` 负责装配。切换 ES module 时同步修改 script 标签并验证 embed 后路径。
-- L5：同一个 Go `package main` 中拆 `hub.go`、`session.go`、`protocol.go`，保留现有启动命令和依赖方向。
-- L6：必要时拆 `ws.go`、`server.go`，处理连接退出与启动配置。
-- L10：出现独立 sensor 可执行程序后再引入 `cmd/pulse-sensor` 与相关 internal 包，不提前迁移全部项目。
-
-每次拆分保持行为不变，并先留好行为验证。只按行数强行切文件，不算职责设计。
+只有实际接口或测试需要才继续拆目录，不预建 Router/Pinia/服务层，不因用户尚未学习而阻塞必要实现。
 
 ## 3. 函数的最低契约
 
@@ -55,7 +36,7 @@ Go 注释从函数名开头。例如计划中的方法声明：
 func (h *Hub) Snapshot() []SessionView
 ```
 
-上例是签名示意，不是可直接单独编译的 Go 文件；SessionView 在 L5 才实现。
+上例是签名示意，不是完整 Go 文件；SessionView 已在本轮 hub.go 中实现，具体合同以源码为准。
 
 JS 示例只展示声明契约：
 

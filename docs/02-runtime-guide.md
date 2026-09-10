@@ -1,6 +1,8 @@
 # PULSE 运行机制：谁调用谁，数据去了哪里
 
-本章按你问过的问题组织。每节先沿当前代码解释，再给一个无需新增大功能的验证题。代码入口按文件和函数定位，不依赖会随编辑变化的行号。
+> 2026-09-10：下文是早期原生页面教材，不再描述当前入口。现行启动链：frontend/index.html → src/main.js → App.vue onMounted → runtime.start → createWorld / createConnection；组件挂载后交付 canvas，卸载清理资源。完整调用链与练习见 [16](16-frontend-foundation.md)。
+
+下文 static/app.js、canvas#c 与 main.go 单文件描述属于历史上下文。
 
 ## 1. HTML 为什么能调用 JavaScript
 

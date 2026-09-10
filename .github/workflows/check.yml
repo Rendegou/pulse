@@ -1,0 +1,25 @@
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: go vet ./...
+      # Linux runner 提供 C 工具链；本机普通测试不能替代此并发检查。
+      - run: go test -race ./... -count=1 -timeout=120s

@@ -12,6 +12,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// newTestHub 使用临时花园，不读取仓库里的游玩数据，也不让构造函数退出测试进程。
+func newTestHub(t *testing.T) *Hub {
+	t.Helper()
+	garden, _ := newTestGarden(t)
+	return NewHub(garden)
+}
+
 // TestValidatePulse 覆盖校验边界：零坐标合法（零值≠缺失），
 // 缺字段 / 显式 null / 越界都非法。
 func TestValidatePulse(t *testing.T) {
@@ -77,7 +84,7 @@ func TestAllowPulse(t *testing.T) {
 // 判定不依赖"某一瞬间 hub.Count() 恰好等于 1"：广播洪泛时两个连接都可能短暂
 // 处于注销中，那一瞬间读数会抖。这里改成看两条连接各自的实际结局。
 func TestSlowConsumerKicked(t *testing.T) {
-	hub := NewHub()
+	hub := newTestHub(t)
 	srv := httptest.NewServer(wsHandler{hub})
 	defer srv.Close()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
@@ -296,7 +303,7 @@ func TestCursorIslandAuthority(t *testing.T) {
 // 客户端 A 的岛归属真正变化时旁观者 B 收到一次 presence（island 从 origin 变为 rain），
 // 同一岛内继续移动不再产生 presence。全程用带超时的读循环，不用 sleep 猜时序。
 func TestPresenceBroadcast(t *testing.T) {
-	hub := NewHub()
+	hub := newTestHub(t)
 	srv := httptest.NewServer(wsHandler{hub})
 	defer srv.Close()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"

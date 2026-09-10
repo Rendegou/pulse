@@ -1,5 +1,7 @@
 # PULSE 进度、验证与学习记录
 
+> 2026-09-10 Vue/Go 重构：基线 `cb28b32`（G0 已提交），界面迁为 Vue 3 + Vite，引擎实例化且可销毁，连接/动作独立管理生命周期，Go 按职责拆文件。入口见 [16](16-frontend-foundation.md)。未提交、推送或部署。旧日期条目保留历史背景，不能覆盖下方当前快照。
+
 > 2026-09-09 路线 v3：用户决定先把保存、身份、真实拜访和布置做完整，再继续视觉优化。重写 [07 当前路线](07-ai-assisted-roadmap.md)，归档旧 A/B 路线并更新 README。本文下方历史条目中的“未提交/未部署”表示当时状态，不代表当前 Git 事实；当前基线见 §1。本次仅源码复核与文档编辑，未修复 G0、未复跑程序检查。文档本地引用、锚点与代码围栏检查通过；git diff --check 通过，未做 Markdown 浏览器渲染检查。
 > 2026-09-09 G0 保存一致性（执行 agent）：**先复现后修复**。
 > - 复现（garden_g0_test.go）：保存失败改内存（`Water` 旧实现先改内存后 persist）、并发提交版本倒退（旧实现锁外 persist 可能旧快照后落盘）、损坏文件静默初始化——三个复现测试在旧实现上全部失败，修复后全绿。
@@ -40,15 +42,28 @@
 
 ## 1. 当前快照
 
-- 核对日期：2026-09-09；源码 HEAD：`39526cd`。本次文档编辑开始前 Git 工作区干净，结束后仅文档有变更。
-- 当前方向：[14 自己的小世界](14-personal-worlds-direction.md)；唯一执行路线为 [07 协作路线 v3](07-ai-assisted-roadmap.md)。
-- 已有：花园已接入正式 Go/WebSocket，三株示例植物、浇水与远端指针有实现。`691b31a` / `39526cd` 已提交；未在本轮核实其部署状态。
-- 当前下一包：G0 保存一致性。`Garden.Water` 保存前改内存、锁外写盘可能乱序、损坏文件静默初始化是源码发现，等待故障复现与修复；不能标记为已修复。
-- 后续：G1 稳定身份与个人岛 → G2 真实拜访 → G3 少量布置保存。所有权、真实邀请和布局编辑均未实现。
-- 历史：功能包 A/B 的[定义已归档](07-ai-assisted-roadmap-2026-09-07-archive.md#5-接下来的功能包)，不重新按旧课程开发。
-- 本轮仅更新文档；没有修改业务代码、复跑程序测试、提交、推送或部署。main push 会触发自动部署。
+- 核对日期：2026-09-10；已提交 HEAD：`cb28b32`，另有本轮未提交架构与文档改动。
+- G0 已实现并回归，下一产品包为 G1 身份与个人岛；重构不等于 G1 完成。
+- 前端源码在 frontend/src，Vue 管低频界面，普通 JavaScript 管粒子、相机与插值。
+- Go 仍单服务，main 装配；hub/protocol/islands/websocket/sensor/web 各负其责，garden 保留串行候选提交。
+- 新增全链卸载、旧连接回调隔离、颜色缓存、动作确认与快照分离；修复植物命中区误发屏幕坐标、plantId 拼写导致特效/岛名丢失。
+- 固定示例岛、临时身份与 Demo 访客窗口保留，真实所有权/邀请/布局待 G1–G3。
+- 未提交、推送或部署。
 
-## 2. 实现证据
+- 继续审查后增加 SessionView、原子握手占位、NewHub 显式接收花园、点对点慢消费者回收和已注销会话保护。新增后端架构测试及 PR 检查工作流，部署检查也包含 race；远端 CI 本轮未运行。
+
+### 本轮验证证据
+
+- npm test：47/47，通过生产插值、投影/几何/预算、连接卸载与迟到回调、浇水关联/失败/超时、plantId 协议消费测试。
+- npm run build：生产构建成功；输出 static/dist，由 Go 二进制内嵌。
+- Go 25 项测试及 go vet 通过，含 G0、公开快照边界、并发连接预算、注销保护、内嵌首页/资源缓存/404；Windows 二进制与 Linux amd64 CGO_ENABLED=0 构建通过。
+- 真实浏览器（独立 Go 8098、独立 .tools 花园文件）：靠近、浇水 0→1→2、双真实连接同步；明暗/中英切换、刷新恢复；390×844 无横向溢出。首轮控制台无 error/warn。
+- 最终复核：Vite 编译页面、healthz 代理均返回 200，WebSocket 代理收到真实 welcome；开发页面实际渲染正常，浇水 2→3 且事件正确显示“给你的原点浇了水”，控制台无 error/warn。旧 plantID/plantId 问题已由浏览器消费链与测试双重核对。
+- 8 份更新文档的本地链接、代码围栏与编码检查通过；git diff --check 通过。
+- 未验证：真实手机手势、跨机器网络、低端设备长时帧率、WebGL 丢失恢复、生产部署、race（本机缺 CGO/C 编译器）。旧 work/check-garden-ui.cjs 依赖旧调试句柄，不作为本轮证据。
+- 用户理解与独立迁移未测，仅留 16 第 9 节的请求关联反例练习。
+
+## 2. 既有实现记录（历史入口，当前目录映射见 16）
 
 ### 已有且不必重做
 
@@ -60,7 +75,7 @@
 
 ### 尚未实现或需要后续验收
 
-- pulse 完整事件链已有实现（功能包 A）；连接预算、welcome 清理、心跳与慢消费者处理也已有实现（功能包 B），不再记为缺失。当前优先修复 G0 的保存与确认边界。
+- pulse、连接预算、welcome 清理、心跳与慢消费者处理已有实现。G0 保存与确认已提交；下一包为 G1，按第 1 节与 16 的新入口继续。
 - 已验证（2026-09-07，本地 127.0.0.1:8090）：双 WS 客户端各收一次脉冲；缺 x / 越界 / 缺 clientEventId 不广播；连发 8 个仅 5 个通过（令牌桶）；浏览器点击出现扩散环。
 - 练习证据：validatePulse 行为测试（零坐标合法、缺字段非法）待用户完成，入口 main_test.go。
 - ~~welcome 写失败处理、writer 失败唤醒 reader、ping/pong、慢消费者退出策略与前端旧连接回调隔离~~（功能包 B 已实现：defer 单一注销、写失败联动关闭、15s ping/45s 读超时、缓冲满断开慢消费者、generation 重连隔离、连接预算 128、/healthz。集成测试覆盖慢消费者回收；45s 读超时未做真实等待验证）。
@@ -88,42 +103,18 @@
 
 ## 4. 常用检查命令
 
-在仓库根目录的 PowerShell 7 中：
+现行命令见 [16 第 6 节](16-frontend-foundation.md#6-本地开发与生产构建) 和根 README。
 
 ```powershell
-git status --short
-node --check static/app.js
-node --check static/world.js
-node --check static/islands.js
-node --check static/pure.js
-node --test work/pure.test.mjs work/l3b.test.mjs work/l3c.test.mjs work/world.test.mjs work/tidal.test.mjs
-go test ./...
+npm ci
+npm test
+npm run build
+go test ./... -count=1
 go vet ./...
 git diff --check
 ```
 
-前端浏览器验收（需要真实服务端；潮汐群岛 + 花园界面）：
-
-```powershell
-go run .                                   # 另开一个窗口
-node work/check-garden-ui.cjs http://127.0.0.1:8090
-node work/shot-tidal-product.cjs http://127.0.0.1:8090   # 截图存档
-```
-
-花园状态默认落在工作目录的 `pulse-garden-state.json`；跑验收或截图时可用
-`$env:PULSE_GARDEN_STATE` 指向临时文件，避免污染本地游玩记录。
-
-若默认 Go 构建缓存因本机权限不可写，可仅对当前 shell 设置：
-
-```powershell
-$env:GOCACHE = Join-Path $env:TEMP 'pulse-plan-audit-go-cache'
-go test ./...
-go vet ./...
-```
-
-插值实验可单独运行 `node work/interpolation-lab.mjs`，但不能替代产品测试。未来增加测试后按实际文件更新命令；不运行不存在的 `static/interpolation.test.mjs`。
-
-并发改动在支持的工具链运行 `go test -race ./...`，记录实际触达路径；Windows 缺 CGO/C 编译器时记录阻塞，再在具备工具链的 CI 验证。不得把未运行记成通过。
+旧 static/*.js 检查和依赖 window.PULSE 的浏览器脚本不再适用。开发用 go run . 配合 npm run dev；正式页面先 npm run build 再启动 Go。
 
 ## 5. 产品与能力分别记录
 
@@ -136,6 +127,4 @@ go vet ./...
 
 ## 6. 下一轮留给执行 agent
 
-当前方向见 [14 自己的小世界](14-personal-worlds-direction.md)。下一步先和用户确定“朋友到岛上后的第一个共同动作”，再核对实时通信与坐标能力，做一次最小双人拜访（主人布置 → 朋友到访 → 双方看见彼此 → 一个共同变化 → 刷新后仍在）。
-
-本轮 AI/用户分工与练习点（留给下一次收尾补记）：AI 完成前端移植、后端岛屿与在场、测试与文档；**尚未给用户布置练习**。建议的练习入口是 `static/pure.js` 的 `resolveIsland`/`islandContains`：给定世界坐标判断归属，反例是“两岛之间的点应归更近的一座、海上返回 null”。
+从 [07 第 12 节](07-ai-assisted-roadmap.md#12-给其他-agent-的首轮提示词) 复制 G1 提示词。先读 [16](16-frontend-foundation.md) 的入口和生命周期边界，保留未提交重构，不恢复旧 app.js、不重做 G0、不另起视觉 Demo。

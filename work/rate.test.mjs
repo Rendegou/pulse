@@ -1,7 +1,7 @@
 // ratePerSecond 的行为测试：node --test work/rate.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ratePerSecond } from "../static/pure.js";
+import { ratePerSecond } from "../frontend/src/engine/pure.js";
 
 test("10 秒窗口内 5 条 → 0.5/s", () => {
   const now = 10_000;

@@ -1,7 +1,7 @@
 // markSeen 去重缓存的行为测试：node --test work/l4a.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { markSeen } from "../static/pure.js";
+import { markSeen } from "../frontend/src/engine/pure.js";
 
 test("新 id 返回 true 并登记", () => {
   const seen = new Set();

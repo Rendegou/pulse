@@ -1,9 +1,13 @@
 // i18n.js — 界面文案字典与格式化。
 // 规则：两种语言 key 集合必须一致（启动时校验）；缺 key 回退到中文原文；
 // 协议字段（type/eventId/Session ID）不翻译；切换语言时已显示的内容一起重绘。
-// 数组型文案（helpCopy、careStage）由 app.js 逐项渲染，不拼 HTML。
+// 数组型文案（helpCopy、careStage）由 runtime.js 逐项渲染，不拼 HTML。
 
 const zh = {
+  close: "关闭",
+  runtime: "运行状态",
+  metricOnline: "在线连接", metricHost: "主机事件/秒", metricHeap: "堆内存", metricSys: "系统内存", metricDropped: "丢弃消息", metricFrame: "帧耗时",
+  remoteWaterNotice: "访客 {id} 也浇了一捧水。",
   edition: "来过，便有回响",
   eyebrow: "海上手记",
   headline: "留一片绿意",
@@ -80,6 +84,10 @@ const zh = {
 };
 
 const en = {
+  close: "Close",
+  runtime: "RUNTIME",
+  metricOnline: "ONLINE", metricHost: "HOST/s", metricHeap: "HEAP", metricSys: "SYS", metricDropped: "DROPPED", metricFrame: "FRAME",
+  remoteWaterNotice: "Visitor {id} also gave some water.",
   edition: "A SMALL SHARED MOMENT",
   eyebrow: "NOTES AT SEA",
   headline: "A little green",
